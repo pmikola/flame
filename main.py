@@ -15,13 +15,12 @@ CUDA_LAUNCH_BLOCKING = 1
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 matplotlib.use('TkAgg')
 
-grid_size = 40
-boundary_length = 2
-size = grid_size + 2
-dx = dy = 0.1
-dt = 0.004
-viscosity = 0.1
-buoyancy_factor = 1.
+grid_size = 400
+N_boundary = 5
+size = grid_size + N_boundary
+dt = 5e-2
+viscosity = 1e-5
+diff = 1e-2
 
 density = torch.zeros(size, size, device=device)
 density_prev = torch.zeros(size, size, device=device)
@@ -32,20 +31,19 @@ v_prev = torch.zeros(size, size, device=device)
 
 
 def set_bnd(N, b, x):
-    for i in range(1, N + 1):
-        if b == 1:
-            x[0, i] = -x[1, i]
-            x[N + 1, i] = -x[N, i]
-        else:
-            x[0, i] = x[1, i]
-            x[N + 1, i] = x[N, i]
+    if b == 1:
+        x[0, 1:N + 1] = -x[1, 1:N + 1]
+        x[N + 1, 1:N + 1] = -x[N, 1:N + 1]
+    else:
+        x[0, 1:N + 1] = x[1, 1:N + 1]
+        x[N + 1, 1:N + 1] = x[N, 1:N + 1]
 
-        if b == 2:
-            x[i, 0] = -x[i, 1]
-            x[i, N + 1] = -x[i, N]
-        else:
-            x[i, 0] = x[i, 1]
-            x[i, N + 1] = x[i, N]
+    if b == 2:
+        x[1:N + 1, 0] = -x[1:N + 1, 1]
+        x[1:N + 1, N + 1] = -x[1:N + 1, N]
+    else:
+        x[1:N + 1, 0] = x[1:N + 1, 1]
+        x[1:N + 1, N + 1] = x[1:N + 1, N]
 
     x[0, 0] = 0.5 * (x[1, 0] + x[0, 1])
     x[0, N + 1] = 0.5 * (x[1, N + 1] + x[0, N])
@@ -54,6 +52,28 @@ def set_bnd(N, b, x):
     return x
 
 
+# def set_bnd(N, b, x):
+#     if b == 1:
+#         x[0, 1:N + 1] = 0
+#         x[N + 1, 1:N + 1] = 0
+#     else:
+#         x[0, 1:N + 1] = x[1, 1:N + 1]
+#         x[N + 1, 1:N + 1] = x[N, 1:N + 1]
+#
+#     if b == 2:
+#         x[1:N + 1, 0] = 0
+#         x[1:N + 1, N + 1] = 0
+#     else:
+#         x[1:N + 1, 0] = x[1:N + 1, 1]
+#         x[1:N + 1, N + 1] = x[1:N + 1, N]
+#
+#     x[0, 0] = 0
+#     x[0, N + 1] = 0
+#     x[N + 1, 0] = 0
+#     x[N + 1, N + 1] = 0
+#
+#     return x
+
 def SWAP(x, x0):
     x, x0 = x0, x
     return x, x0
@@ -61,15 +81,57 @@ def SWAP(x, x0):
 
 # Step 1
 # w1(x) = w0(x) + dt * f(x,t)
-def add_force(w0, dt):
-    # low = grid_size // 2
-    # high = grid_size // 2
-    idx_x = torch.randint(low=grid_size // 2 - 5, high=grid_size // 2 + 5, size=(1,))
-    idx_y = torch.randint(low=grid_size // 2 - 2, high=grid_size // 2 + 5, size=(1,))
-    # w0[int(grid_size / 2), int(grid_size / 2)] += 1.
-    w0[idx_x, idx_y] += 1.
-    w1 = w0 + dt * w0[idx_x, idx_y]
-    return w1
+# Dynamic density addition
+def add_source_density(x, x0, dt):
+    rg = 15
+    offset_vertical = int(grid_size / 3)
+    center = grid_size // 2
+    idx_x_low = center - rg + offset_vertical
+    idx_x_high = center + rg + offset_vertical
+    idx_y_low = center - rg
+    idx_y_high = center + rg
+    idx_x = torch.randint(low=idx_x_low, high=idx_x_high, size=(1,))
+    idx_y = torch.randint(low=idx_y_low, high=idx_y_high, size=(1,))
+
+    x0[idx_x, idx_y] += 0.05
+    x[idx_x, idx_y] += \
+        dt * x0[idx_x, idx_y]
+
+    x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += 1.
+    x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += \
+        dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+    return x, x0
+
+
+# Static velocity field components
+# TODO: Change to dynamic velocity fielt that accounts for gravity and temperature
+# TODO: make velocity perturbations accorting to density
+def add_source_u(x, x0, dt):
+    rg = 5
+    offset_vertical = int(grid_size / 3)
+    center = grid_size // 2
+    idx_x_low = center - rg + offset_vertical
+    idx_x_high = center + rg + offset_vertical
+    idx_y_low = center - rg
+    idx_y_high = center + rg
+    x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] -= 15.
+    x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
+        = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+    return x, x0
+
+
+def add_source_v(x, x0, dt):
+    rg = 1
+    offset_vertical = int(grid_size / 3)
+    center = grid_size // 2
+    idx_x_low = center - rg + offset_vertical
+    idx_x_high = center + rg + offset_vertical
+    idx_y_low = center - rg
+    idx_y_high = center + rg
+    x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += 1.
+    x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
+        = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+    return x, x0
 
 
 # Step 2
@@ -111,20 +173,20 @@ def transform_to_k_space(w2):
 # Step 3
 # Implict method
 #   w3(k) = w2(k)/(Identity_operator - v * dt * (i*k)**2)
-def diffuse(b, x, x0, dt):
+def diffuse(z, x, x0, diff, dt):
     # imag = torch.tensor([-1], device=device)
-    alpha = dt * viscosity * grid_size * grid_size
+    alpha = dt * diff * grid_size * grid_size
+    a = 0
+    b = a + 1
+    c = b + 1
+    d = -b
+    e = -c
     for k in range(20):
-        x[1:-1, 1:-1] = (x0[1:-1, 1:-1] + alpha *
-                         (x[0:-2, 1:-1] + x[2:, 1:-1] + x[1:-1, 0:-2] +
-                          x[1:-1, 2:])) / (1 + 4 * alpha)
-        x[0, :] = x[1, :]
-        x[-1, :] = x[-2, :]
-        x[:, 0] = x[:, 1]
-        x[:, -1] = x[:, -2]
+        x[b:d, b:d] = (x0[b:d, b:d] + alpha *
+                       (x[a:e, b:d] + x[c:, b:d] + x[b:d, a:e] +
+                        x[b:d, c:])) / (1 + 4 * alpha)
 
-    x = set_bnd(grid_size, b, x)
-
+    x = set_bnd(grid_size, z, x)
     return x, x0
 
 
@@ -133,22 +195,27 @@ def diffuse(b, x, x0, dt):
 # (i*k)**2 * q = (i*k) *w3(k)
 def project(u, v, u_prev, v_prev):
     h = 1. / grid_size
-    u_new = torch.zeros_like(u)
-    v_new = torch.zeros_like(v)
-
-    v_new[1:-1, 1:-1] = -0.5 * h * ((u[2:, 1:-1] - u[:-2, 1:-1]) + (v[1:-1, 2:] - v[1:-1, :-2]))
-
-    u_prev.fill_(0)
+    a = 0
+    b = a + 1
+    c = b + 1
+    d = -b
+    e = -c
+    v_prev[b:d, b:d] = -0.5 * h * ((u[c:, b:d] - u[:e, b:d]) + (v[b:d, c:] - v[b:d, :e]))
+    u_prev.fill_(0.)
+    u_prev = set_bnd(grid_size, 0, u_prev)
+    v_prev = set_bnd(grid_size, 0, v_prev)
 
     for k in range(20):
-        u_prev[1:-1, 1:-1] = (v_prev[1:-1, 1:-1] + u_prev[:-2, 1:-1] + u_prev[2:, 1:-1] + u_prev[1:-1, :-2] + u_prev[
-                                                                                                              1:-1,
-                                                                                                              2:]) / 4.
+        u_prev[b:d, b:d] = (v_prev[b:d, b:d] + u_prev[:e, b:d] +
+                            u_prev[c:, b:d] + u_prev[b:d, :e] +
+                            u_prev[b:d, c:]) / 4.
+        u_prev = set_bnd(grid_size, 0, u_prev)
 
-    u_new[1:-1, 1:-1] = u[1:-1, 1:-1] - 0.5 * (u_prev[2:, 1:-1] - u_prev[:-2, 1:-1]) / h
-    v_new[1:-1, 1:-1] = v[1:-1, 1:-1] - 0.5 * (u_prev[1:-1, 2:] - u_prev[1:-1, :-2]) / h
-
-    return u_new, v_new, u_prev, v_prev
+    u[b:d, b:d] = u[b:d, b:d] - 0.5 * (u_prev[c:, b:d] - u_prev[:e, b:d]) / h
+    v[b:d, b:d] = v[b:d, b:d] - 0.5 * (u_prev[b:d, c:] - u_prev[b:d, :e]) / h
+    u = set_bnd(grid_size, 1, u)
+    v = set_bnd(grid_size, 2, v)
+    return u, v, u_prev, v_prev
 
 
 # Step 4.5
@@ -158,53 +225,62 @@ def transform_to_x_space(w4_k):
     return w4
 
 
-def vel_step(u, v, u_prev, v_prev, dt):
-    u_prev = add_force(u_prev, dt)
-    v_prev = add_force(v_prev, dt)
+def vel_step(u, v, u_prev, v_prev, viscosity, dt):
+    u, u_prev = add_source_u(u, u_prev, dt)
+    v, v_prev = add_source_v(v, v_prev, dt)
 
     u, u_prev = SWAP(u, u_prev)
-    u, u_prev = diffuse(1, u, u_prev, dt)
-
+    u, u_prev = diffuse(1, u, u_prev, viscosity, dt)
     v, v_prev = SWAP(v, v_prev)
-    v, v_prev = diffuse(2, v, v_prev, dt)
-    # u, v, u_prev, v_prev = project(u, v, u_prev, v_prev)
+    v, v_prev = diffuse(2, v, v_prev, viscosity, dt)
+
+    u, v, u_prev, v_prev = project(u, v, u_prev, v_prev)
+
     u, u_prev = SWAP(u, u_prev)
     v, v_prev = SWAP(v, v_prev)
-
     u, u_prev = advect(1, u, u_prev, u_prev, v_prev, dt)
     v, v_prev = advect(2, v, v_prev, u_prev, v_prev, dt)
-    # u, v, u_prev, v_prev = project(u, v, u_prev, v_prev)
+    u, v, u_prev, v_prev = project(u, v, u_prev, v_prev)
 
-    return u, u_prev, v, v_prev
-
-
-def dens_step(density, density_prev, u, v, dt):
-    density_prev = add_force(density_prev, dt)
-    density, density_prev = diffuse(0, density, density_prev, dt)
-    density, density_prev = advect(0, density_prev, density, u, v, dt)
-    return density_prev, density
+    return u, v, u_prev, v_prev
 
 
-def update_grid(density, density_prev, u, u_prev, v, v_prev, dt, viscosity):
-    u, u_prev, v, v_prev = vel_step(u, v, u_prev, v_prev, dt)
-    density, density_prev = dens_step(density, density_prev, u, v, dt)
-    return density, density_prev, u, u_prev, v, v_prev
+def dens_step(density, density_prev, u, v, diff, dt,step):
+    if step % 1 == 0:
+        density, density_prev = add_source_density(density, density_prev, dt)
+    else:
+        pass
+    # density, density_prev = SWAP(density, density_prev)
+    density, density_prev = diffuse(0, density, density_prev, diff, dt)
+    density, density_prev = SWAP(density, density_prev)
+    density, density_prev = advect(0, density, density_prev, u, v, dt)
+    return density, density_prev
+
+
+def update_grid(density, density_prev, u, u_prev, v, v_prev, dt, viscosity, diff,step):
+    u, v, u_prev, v_prev = vel_step(u, v, u_prev, v_prev, viscosity, dt)
+    density, density_prev = dens_step(density, density_prev, u, v, diff, dt,step)
+    return density, density_prev, u, v, u_prev, v_prev
 
 
 # Create animation
-fig, ax = plt.subplots()
-ax.set_axis_off()
+fig, [ax1, ax2, ax3] = plt.subplots(nrows=1, ncols=3)
+ax1.set_axis_off()
+ax2.set_axis_off()
+ax3.set_axis_off()
 ims = []
 
-for i in range(1000):
+for i in range(500):
     # print(i)
-    density, density_prev, u, u_prev, v, v_prev = update_grid(density, density_prev, u, u_prev, v, v_prev, dt,
-                                                              viscosity)
-    im = ax.imshow(density.cpu().numpy(), cmap='hot', animated=True)
-    ims.append([im])
+    density, density_prev, u, v, u_prev, v_prev = update_grid(density, density_prev, u, u_prev, v, v_prev, dt,
+                                                              viscosity, diff,i)
+    d = ax2.imshow(density.cpu().numpy(), cmap='hot', animated=True)
+    u_component = ax1.imshow(u.cpu().numpy(), cmap='hot', animated=True)
+    v_component = ax3.imshow(v.cpu().numpy(), cmap='hot', animated=True)
+    ims.append([d, u_component, v_component])
 
 ani = animation.ArtistAnimation(fig, ims, interval=1, blit=True, repeat_delay=100)
-ani.save("diffiusion_advection.gif", fps=100)
+ani.save("project_fixed.gif", fps=25)
 plt.show()
 
 torch.cuda.empty_cache()
