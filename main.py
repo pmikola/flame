@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from matplotlib import animation
+import torch.nn.functional as F
 
 torch.cuda.synchronize()
 CUDA_LAUNCH_BLOCKING = 1
@@ -142,11 +143,11 @@ def add_source_density(x, x0, dt):
     idx_x = torch.randint(low=idx_x_low, high=idx_x_high, size=(1,))
     idx_y = torch.randint(low=idx_y_low, high=idx_y_high, size=(1,))
 
-    x0[idx_x, idx_y] += 0.2/rg*2
+    x0[idx_x, idx_y] += 0.2 / rg * 2
     x[idx_x, idx_y] += \
         dt * x0[idx_x, idx_y]
 
-    x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += 1./rg*2
+    x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += 1. / rg * 2
     x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += \
         dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
     return x, x0
@@ -314,7 +315,8 @@ def update_grid(density, density_prev, u, u_prev, v, v_prev, dt, viscosity, diff
     temperature = velocity_to_temperature(velocity, 1, 2)
     rgb = temperature_to_rgb(temperature)
     density, density_prev = dens_step(density, density_prev, u, v, diff, dt, step)
-    rgb = rgb * density.unsqueeze(2).repeat(1,1,3)
+
+    # rgb = torch.cat([rgb , density.unsqueeze(2)],dim=2)
     return density, density_prev, u, v, u_prev, v_prev, rgb
 
 
@@ -333,6 +335,8 @@ for i in range(500):
     d = ax2.imshow(density.cpu().numpy(), cmap='hot', animated=True)
     u_component = ax1.imshow(u.cpu().numpy(), cmap='hot', animated=True)
     v_component = ax3.imshow(v.cpu().numpy(), cmap='hot', animated=True)
+    # d_norm = F.normalize(density.unsqueeze(2), p=1, dim=1)
+    # , alpha = F.normalize(density, dim=0).cpu().numpy()
     rgb = ax4.imshow((rgb.cpu().numpy() * 255).astype(np.uint8))
     ims.append([d, u_component, v_component, rgb])
 
