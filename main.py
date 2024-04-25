@@ -20,15 +20,15 @@ CUDA_LAUNCH_BLOCKING = 1
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 matplotlib.use('TkAgg')
 plt.style.use('dark_background')
-no_frames = 300
+no_frames = 500
 grid_size_x = 700
 grid_size_y = 400
-N_boundary = 5
+N_boundary = int(grid_size_x / 100)
 size_x = grid_size_x + N_boundary * 2
 size_y = grid_size_y + N_boundary * 2
 dx = 2 / (size_x - 1)  # [m]
 dy = 2 / (size_y - 1)
-dt = 1 * 1e-3  # [s]
+dt = 1 * 1e-2  # [s]
 degrees_of_freedom = 2
 # TODO : Change viscosity to tensor
 viscosity = 1.48 * 1e-5  # of air
@@ -64,6 +64,8 @@ product_molecular_mass = co2_molecular_mass * no_of_co2 + h2o_molecular_mass * n
 PE_fuel_oxidizer_propane = 2219.9 * 1e3 / avogardo
 PE_fuel_oxidizer_butane = 2657 * 1e3 / avogardo
 PE_total = (PE_fuel_oxidizer_propane + PE_fuel_oxidizer_butane) / 2
+
+Su_propane_butane_burning_velocity = 38.3 * 1e-2
 
 grid_unit_volume = 1  #dx ** 3
 # propane butane fuel_density is in range of 1.88 to 2.5 kg/m**3
@@ -141,8 +143,8 @@ def divisionByZero(numerator, denominator, eps=1e-8):
     return result
 
 
-def nan2zero(tensor):
-    tensor = torch.nan_to_num(tensor, nan=0., posinf=0., neginf=0.)
+def nan2zero(tensor, nan, pinf, ninf):
+    tensor = torch.nan_to_num(tensor, nan=nan, posinf=pinf, neginf=ninf)
     return tensor
 
 
@@ -155,7 +157,7 @@ def ignite(temperature, step):
     idx_x_high = center_x + rg + offset_vertical
     idx_y_low = center_y - rg
     idx_y_high = center_y + rg
-    ignite_temp = 273. + 500.
+    ignite_temp = 273. + 1300.  # lighter temperature
     if step > 25:
         pass
     else:
@@ -168,40 +170,44 @@ def combustion(fuel_density, oxidizer_density, product_density,
                u, v, pressure, temperature, temperature_prev,
                mass_fuel, mass_fuel_prev, mass_oxidizer, mass_oxidizer_prev,
                mass_product, mass_product_prev, deegres_of_freedom, step):
-    density = fuel_density + oxidizer_density  #+ product_density
+    density = fuel_density + oxidizer_density
     temperature += ignite(temperature, step)
-    d_low = 1e-3
-    d_high = 150.
+    d_low = 1e-1
+    d_high = 2.
     chemical_potential_energy = 1.
     th_point = 273. + 400.  # KELVINS
 
-    density_treshold = ((density >= d_low) & (density <= d_high))
+    density_treshold_unburned_fuel = ((fuel_density >= d_low) & (fuel_density <= d_high))
+    density_treshold_unburned_oxizdizer = ((oxidizer_density >= d_low) & (oxidizer_density <= d_high))
     above_temperature_treshold = (temperature >= th_point)
-    conditions_met = above_temperature_treshold & density_treshold
+    conditions_met = above_temperature_treshold & density_treshold_unburned_fuel & density_treshold_unburned_oxizdizer
+    # TODO : add dependency of densities ratio
+    # Solution : ideal gas case
+    # kT = (boltzmann_constant * temperature)
+    # N_fuel_atoms = pressure * mass_fuel / fuel_density / kT
+    # N_fuel_atoms = nan2zero(N_fuel_atoms)
+    # N_oxy_atoms = pressure * mass_oxidizer / oxidizer_density / kT
+    # N_oxy_atoms = nan2zero(N_oxy_atoms)
+    # N_product_atoms = pressure * mass_product / product_density / kT
+    # N_product_atoms = nan2zero(N_product_atoms)
+    #
+    # KE_fuel = N_fuel_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
+    # KE_oxy = N_oxy_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
+    #
+    # KE_product = N_product_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
+    # PE = (N_fuel_atoms + N_oxy_atoms) * PE_total
+    #
+    # PE2V = -torch.sqrt(PE * 2 / (mass_fuel + mass_oxidizer))
+    # vfPE = torch.rand(PE2V.shape, device=device)
+    #
+    # vfPE = vfPE < 0.5
+    # vfPE = vfPE >= 0.5
+    # PE2V *= vfPE.float() * 2 - 1
+    # PE2V = nan2zero(PE2V)
 
-    kT = (boltzmann_constant * temperature)
-    N_fuel_atoms = pressure * mass_fuel / fuel_density / kT
-    N_fuel_atoms = nan2zero(N_fuel_atoms)
-    N_oxy_atoms = pressure * mass_oxidizer / oxidizer_density / kT
-    N_oxy_atoms = nan2zero(N_oxy_atoms)
-    N_product_atoms = pressure * mass_product / product_density / kT
-    N_product_atoms = nan2zero(N_product_atoms)
-
-    KE_fuel = N_fuel_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
-    KE_oxy = N_oxy_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
-
-    KE_product = N_product_atoms * (3. * boltzmann_constant / deegres_of_freedom) * temperature
-    PE = (N_fuel_atoms + N_oxy_atoms) * PE_total
-
-    PE2V = -torch.sqrt(PE * 2 / (mass_fuel + mass_oxidizer))
-    vfPE = torch.rand(PE2V.shape, device=device)
-
-    vfPE = vfPE < 0.5
-    vfPE = vfPE >= 0.5
-    PE2V *= vfPE.float() * 2 - 1
-    PE2V = nan2zero(PE2V)
-    U_fuel_oxidizer = KE_fuel + KE_oxy + PE  # Internal Energy of the system
-    U_product = KE_product
+    # Solution: Exctraction of energy from enthlapy
+    # U_fuel_oxidizer = KE_fuel + KE_oxy + PE  # Internal Energy of the system
+    # U_product = KE_product
     # dMfo = (mass_fuel + mass_oxidizer) - (mass_fuel_prev + mass_oxidizer_prev)
     # dMp = (mass_product - mass_product_prev)
     # dT = (temperature - temperature_prev)
@@ -219,19 +225,28 @@ def combustion(fuel_density, oxidizer_density, product_density,
     # delta_H_product = nan2zero(delta_H_product)
 
     # print(velocityFromPE)
+
+    dens_ratio_ax = density[conditions_met] / product_density[conditions_met]
+    dens_ratio_rad = product_density[conditions_met] / density[conditions_met]
+    axial_density_ratio = nan2zero(dens_ratio_ax, 0., 0., 0.)
+    radial_density_ratio = nan2zero(dens_ratio_rad, 0., 0., 0.)
+    Vthetamax = 1
+    axial_velocity = torch.sqrt(axial_density_ratio * Su_propane_butane_burning_velocity ** 2 + Vthetamax ** 2)
+    radial_velocity = Su_propane_butane_burning_velocity + Vthetamax * torch.sqrt((1 + radial_density_ratio))
     # TODO : Velocity and temperature issue - need better matching
-    zeroing = torch.zeros_like(PE2V, device=device)
-    velocities_masked = torch.where(conditions_met, PE2V, zeroing)
+    # zeroing = torch.zeros_like(PE2V, device=device)
+    # velocities_masked = torch.where(conditions_met, PE2V, zeroing)
 
-    product_density[conditions_met] += (fuel_density[conditions_met] + oxidizer_density[conditions_met]) * 0.5
-    fuel_density[conditions_met] -= fuel_density[conditions_met] * 0.5
-    oxidizer_density[conditions_met] -= oxidizer_density[conditions_met] * 0.5
-
+    product_density[conditions_met] += (fuel_density[conditions_met] + oxidizer_density[conditions_met])
+    fuel_density[conditions_met] -= fuel_density[conditions_met]
+    oxidizer_density[conditions_met] -= oxidizer_density[conditions_met]
+    # print(axial_velocity.max(), axial_velocity.min())
+    # print(radial_velocity.max(), radial_velocity.min())
     # fuel_density[fuel_density <= 1e-5] = 1e-5
     # oxidizer_density[oxidizer_density <= 1e-5] = 1e-5
 
-    u += velocities_masked * dt
-    v += velocities_masked * dt
+    u[conditions_met] -= 10 * dt
+    #v[conditions_met] -= 1 * dt
     return u, v, fuel_density, oxidizer_density, product_density
 
 
@@ -260,11 +275,11 @@ def temperature2velocity(pressure, temperature, fuel_density, product_density, o
                          degrees_of_freedom):
     kT = (boltzmann_constant * temperature)
     N_oxy_atoms = pressure * mass_oxidizer * grid_unit_volume / oxidizer_density / kT
-    N_oxy_atoms = nan2zero(N_oxy_atoms)
+    N_oxy_atoms = nan2zero(N_oxy_atoms, 0., 0., 0.)
 
     kinetic_energy_per_atom = (3 / degrees_of_freedom) * kT
     velocity_matrix_oxidizer = (2 * N_oxy_atoms * kinetic_energy_per_atom / mass_oxidizer) ** 0.5
-    velocity_matrix_oxidizer = nan2zero(velocity_matrix_oxidizer)
+    velocity_matrix_oxidizer = nan2zero(velocity_matrix_oxidizer, 0., 0., 0.)
     v = velocity_matrix_oxidizer - 2 * velocity_matrix_oxidizer * torch.rand(velocity_matrix_oxidizer.shape[0],
                                                                              velocity_matrix_oxidizer.shape[1],
                                                                              device=device)
@@ -341,9 +356,13 @@ def add_fuel_density(x, x0, dt, step):
 
 
 def add_oxidiser_density(x, x0, dt, step):
-    # air densityt 1.225 kg/m
-    x0[N_boundary:grid_size_x, N_boundary:grid_size_y] += 1.225
-    x[N_boundary:grid_size_x, N_boundary:grid_size_y] = dt * x0[N_boundary:grid_size_x, N_boundary:grid_size_y]
+    # air density 1.225 kg/m3
+    if step < 2:
+        x0[N_boundary:grid_size_x, N_boundary:grid_size_y] += 1.225
+        x[N_boundary:grid_size_x, N_boundary:grid_size_y] = dt * x0[N_boundary:grid_size_x, N_boundary:grid_size_y]
+    else:
+        x0[N_boundary:grid_size_x, N_boundary:grid_size_y] += 1.225*85
+        x[N_boundary:grid_size_x, N_boundary:grid_size_y] = dt * x0[N_boundary:grid_size_x, N_boundary:grid_size_y]
     return x, x0
 
 
@@ -361,7 +380,7 @@ def add_source_u(fuel_density, x, x0, dt, step):
     x0 += gravity
     fuel_speed = 15.
     # Fire
-    x0 -= fuel_speed * fuel_density
+    x0 -= fuel_speed
 
     x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
         = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
@@ -379,7 +398,7 @@ def add_source_v(fuel_density, x, x0, dt, step):
     idx_y_low = center_y - rg
     idx_y_high = center_y + rg
 
-    x0 += 2 * (torch.rand(x0.shape, device=device) - 0.5) * fuel_density
+    x0 += 2 * (torch.rand(x0.shape, device=device) - 0.5)
 
     x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
         = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
@@ -426,7 +445,7 @@ def transform2k_space(w2):
 #   w3(k) = w2(k)/(Identity_operator - v * dt * (i*k)**2)
 def diffuse(z, x, x0, diff, dt):
     # imag = torch.tensor([-1], device=device)
-    alpha = dt * diff * grid_size_x * grid_size_y
+    alpha = dt * grid_size_x * grid_size_y * diff
     a = 0
     b = a + 1
     c = b + 1
@@ -476,9 +495,16 @@ def transform_to_x_space(w4_k):
     return w4
 
 
-def vel_step(fuel_density, oxidizer_density, u, v, u_prev, v_prev, viscosity, dt, step):
+def vel_step(fuel_density, oxidizer_density, product_density, u, v, u_prev, v_prev, viscosity, dt, step):
+    u, v, fuel_density, oxidizer_density, product_density = combustion(fuel_density, oxidizer_density, product_density,
+                                                                       u, v, pressure, temperature, temperature_prev,
+                                                                       mass_fuel, mass_fuel_prev, mass_oxidizer,
+                                                                       mass_oxidizer_prev, mass_product,
+                                                                       mass_product_prev,
+                                                                       deegres_of_freedom, step)
     u, u_prev = add_source_u(fuel_density, u, u_prev, dt, step)
     v, v_prev = add_source_v(fuel_density, v, v_prev, dt, step)
+
     u, u_prev = SWAP(u, u_prev)
     u, u_prev = diffuse(1, u, u_prev, viscosity, dt)
     v, v_prev = SWAP(v, v_prev)
@@ -489,7 +515,7 @@ def vel_step(fuel_density, oxidizer_density, u, v, u_prev, v_prev, viscosity, dt
     u, u_prev = advect(1, u, u_prev, u_prev, v_prev, dt)
     v, v_prev = advect(2, v, v_prev, u_prev, v_prev, dt)
     u, v, u_prev, v_prev = project(u, v, u_prev, v_prev)
-    return u, v, u_prev, v_prev
+    return u, v, u_prev, v_prev, fuel_density, oxidizer_density, product_density
 
 
 def dens_step(fuel_density, fuel_density_prev, oxidizer_density, oxidizer_density_prev, product_density,
@@ -587,13 +613,10 @@ def update_grid(fuel_density, fuel_density_prev, oxidizer_density,
     mass_fuel = fuel_density * grid_unit_volume
     mass_oxidizer = oxidizer_density * grid_unit_volume
     mass_product = product_density * grid_unit_volume
-    u, v, u_prev, v_prev = vel_step(fuel_density, oxidizer_density, u, v, u_prev, v_prev, viscosity, dt, step)
-    u, v, fuel_density, oxidizer_density, product_density = combustion(fuel_density, oxidizer_density, product_density,
-                                                                       u, v, pressure, temperature, temperature_prev,
-                                                                       mass_fuel, mass_fuel_prev, mass_oxidizer,
-                                                                       mass_oxidizer_prev, mass_product,
-                                                                       mass_product_prev,
-                                                                       deegres_of_freedom, step)
+
+    u, v, u_prev, v_prev, fuel_density, oxidizer_density, product_density = vel_step(fuel_density, oxidizer_density,
+                                                                                     product_density, u, v, u_prev,
+                                                                                     v_prev, viscosity, dt, step)
     velocity_magnitude = torch.sqrt(u ** 2 + v ** 2)
     poisson_v_term = poisson_velocity_term(poisson_v_term, fuel_density, oxidizer_density, product_density, dt, u, v,
                                            dx)
