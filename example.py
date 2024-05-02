@@ -16,7 +16,7 @@ def simulate_flame(f, *args):
 def main():
     tstart = time.time()
     try:
-        set_start_method('spawn')  # Warning! :('spawn') must be called
+        set_start_method('spawn')  # Warning! ('spawn') must be called
     except RuntimeError:
         pass
     # f1 = flame_sim(no_frames=1500)

@@ -11,10 +11,20 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-# TODO : CREATE PARALLEL GPU DATASET GENERATOR IN FLAMES
-# TODO : add init values such as ignition position and more
+
 class flame_sim(object):
-    def __init__(self, no_frames=1000, grid_x=700, grid_y=400):
+    def __init__(self, no_frames=1000, grid_x=700, grid_y=400, dt=1 * 1e-2, diff=5e-3, viscosity=1.48 * 1e-5,
+                 d_low_fuel_c=1e-2,
+                 d_high_fuel_c=1e3,
+                 d_low_oxidizer_c=1e-2,
+                 d_high_oxidizer_c=1e1,
+                 th_point_c=273. + 400.,
+                 d_low_product_r_c=1e-3,
+                 d_high_product_r_c=1e1,
+                 th_point_r_c=273. + 200.,
+                 d_low_product_r_h=1e1,
+                 d_high_product_r_h=20.,
+                 th_point_r_h=273. + 400.):
 
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
@@ -29,10 +39,10 @@ class flame_sim(object):
         self.size_y = self.grid_size_y + self.N_boundary * 2
         self.dx = 2 / (self.size_x - 1)  # [m]
         self.dy = 2 / (self.size_y - 1)
-        self.dt = 1 * 1e-2  # [s]
+        self.dt = dt  # [s]
         self.degrees_of_freedom = 2
-        self.viscosity = 1.48 * 1e-5  # of air
-        self.diff = 5e-3
+        self.viscosity = viscosity  # of air
+        self.diff = diff
         self.avogardo = 6.022 * 10 * 1e23
         self.gas_constant = R = 8.314
         self.boltzmann_constant = 1.380649 * 10e-23
@@ -61,19 +71,19 @@ class flame_sim(object):
         self.Su_propane_butane_burning_velocity = 38.3 * 1e-2
         self.grid_unit_volume = 1
 
-        self.d_low_fuel = 1e-2
-        self.d_high_fuel = 1e3
-        self.d_low_oxidizer = 1e-2
-        self.d_high_oxidizer = 1e1
-        self.th_point_c = 273. + 400.  # KELVINS
+        self.d_low_fuel = d_low_fuel_c
+        self.d_high_fuel = d_high_fuel_c
+        self.d_low_oxidizer = d_low_oxidizer_c
+        self.d_high_oxidizer = d_high_oxidizer_c
+        self.th_point_c = th_point_c  # KELVINS
 
-        self.d_low_product_r_c = 1e-3
-        self.d_high_product_r_c = 1e1
-        self.th_point_r_c = 273. + 200.  # KELVINS
+        self.d_low_product_r_c = d_low_product_r_c
+        self.d_high_product_r_c = d_high_product_r_c
+        self.th_point_r_c = th_point_r_c  # KELVINS
 
-        self.d_low_product_r_h = 1e1
-        self.d_high_product_r_h = 20.
-        self.th_point_r_h = 273. + 400.  # KELVINS
+        self.d_low_product_r_h = d_low_product_r_h
+        self.d_high_product_r_h = d_high_product_r_h
+        self.th_point_r_h = th_point_r_h  # KELVINS
 
         self.low_alpha = 3.
         self.high_alpha = 12.
@@ -188,7 +198,6 @@ class flame_sim(object):
     def combustion(self, fuel_density, oxidizer_density, product_density,
                    u, v, temperature, step):
         temperature += self.ignite(temperature, step)
-
         density_treshold_unburned_fuel = ((fuel_density >= self.d_low_fuel) & (fuel_density <= self.d_high_fuel))
         density_treshold_unburned_oxizdizer = (
                 (oxidizer_density >= self.d_low_oxidizer) & (oxidizer_density <= self.d_high_oxidizer))
@@ -220,7 +229,6 @@ class flame_sim(object):
         vertical_directivity = vertical_directivity >= 0.5
         horizontal_directivity = horizontal_directivity < 0.5
         horizontal_directivity = horizontal_directivity >= 0.5
-
         cooling_u_magnitude = 0.2
         cooling_v_magnitude = 0.2
         u[self.N_boundary:self.grid_size_x - self.N_boundary,
@@ -295,8 +303,6 @@ class flame_sim(object):
         red = torch.zeros_like(temperature)
         green = torch.zeros_like(temperature)
         blue = torch.zeros_like(temperature)
-
-
         alpha_mask = (temperature >= self.low_alpha) & (temperature <= self.high_alpha)
         self.alpha[alpha_mask] = torch.exp(-(temperature[alpha_mask] - self.low_alpha) / self.alpha_decay)
         self.alpha[temperature < self.low_alpha] = 0
@@ -638,7 +644,7 @@ class flame_sim(object):
             poisson_v_term, rgb, alpha
 
     def save_results(self, step, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
-                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0,save_alpha=0):
+                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
         if step % frame_skip == 0 or step == 0:
             if save_v == 1 and step == 0:
                 self.v_result = torch.zeros_like(self.v, device=self.device)
@@ -703,7 +709,7 @@ class flame_sim(object):
 
     def simulate(self, plot=0, save_animation=0, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,
                  save_oxidizer=0,
-                 save_product=0, save_pressure=0, save_temperature=0, save_rgb=0,save_alpha=0):
+                 save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
 
         if plot == 1:
             # Create animation
@@ -737,7 +743,7 @@ class flame_sim(object):
             self.save_results(i, save_v=save_v, save_u=save_u, save_vu_mag=save_vu_mag, save_fuel=save_fuel,
                               save_oxidizer=save_oxidizer,
                               save_product=save_product, save_pressure=save_pressure, save_temperature=save_temperature,
-                              save_rgb=save_rgb,save_alpha=save_alpha)
+                              save_rgb=save_rgb, save_alpha=save_alpha)
             self.fuel_density, self.fuel_density_prev, \
                 self.oxidizer_density, self.oxidizer_density_prev, \
                 self.product_density, self.product_density_prev, \
