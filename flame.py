@@ -11,13 +11,11 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-
 # TODO : CREATE PARALLEL GPU DATASET GENERATOR IN FLAMES
 # TODO : add init values such as ignition position and more
 class flame_sim(object):
     def __init__(self, no_frames=1000, grid_x=700, grid_y=400):
 
-        self.step = 0
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
         plt.style.use('dark_background')
@@ -91,7 +89,7 @@ class flame_sim(object):
         self.u = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.v = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.velocity_magnitude = torch.zeros(self.size_x, self.size_y, device=self.device)
-        self.velocity_matrix = torch.zeros(self.size_x, self.size_y, device=self.device)
+
         # RANDOM WIND SPEEDS https://www.weather.gov/mfl/beaufort
         self.r1 = -0.1
         self.r2 = 0.1
@@ -171,7 +169,7 @@ class flame_sim(object):
         result[~zero_mask] = numerator[~zero_mask] / denominator[~zero_mask]
         return result
 
-    def ignite(self):
+    def ignite(self, temperature, step):
         rg = 25
         offset_vertical = int(self.grid_size_x / 3)
         center_x = self.grid_size_x // 2
@@ -181,41 +179,43 @@ class flame_sim(object):
         idx_y_low = center_y - rg
         idx_y_high = center_y + rg
         ignite_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
-        if self.step > 75:
+        if step > 75:
             pass
         else:
-            self.temperature[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += ignite_temp
+            temperature[idx_x_low:idx_x_high, idx_y_low:idx_y_high] = ignite_temp
+        return temperature
 
-    def combustion(self):
-        self.ignite()
-        density_treshold_unburned_fuel = (
-                (self.fuel_density >= self.d_low_fuel) & (self.fuel_density <= self.d_high_fuel))
+    def combustion(self, fuel_density, oxidizer_density, product_density,
+                   u, v, temperature, step):
+        temperature += self.ignite(temperature, step)
+
+        density_treshold_unburned_fuel = ((fuel_density >= self.d_low_fuel) & (fuel_density <= self.d_high_fuel))
         density_treshold_unburned_oxizdizer = (
-                (self.oxidizer_density >= self.d_low_oxidizer) & (self.oxidizer_density <= self.d_high_oxidizer))
-        above_temperature_treshold = (self.temperature >= self.th_point_c)
+                (oxidizer_density >= self.d_low_oxidizer) & (oxidizer_density <= self.d_high_oxidizer))
+        above_temperature_treshold = (temperature >= self.th_point_c)
         conditions_met = above_temperature_treshold & density_treshold_unburned_fuel & density_treshold_unburned_oxizdizer
         u_burning = -35.  # Note : empirical maximum vertical velocity of burning | TODO : Normalization to physical real values needed
         v_burning = 45.  # Note : empirical maximum horizontal velocity of burning
-        ratio_density = self.fuel_density / self.oxidizer_density
+        ratio_density = fuel_density / oxidizer_density
         ratio_density = self.nan2zero(ratio_density, 0, 0, 0)
         pwr_extraction = 1. / (1 + torch.exp(-1 * (ratio_density - 0.5)))
         horizontal_directivity = torch.rand(conditions_met.shape, device=self.device)
         horizontal_directivity = horizontal_directivity < 0.5
         horizontal_directivity = horizontal_directivity >= 0.5
-        self.u[conditions_met] += u_burning * pwr_extraction[conditions_met] * self.dt
-        self.v[conditions_met] += (horizontal_directivity[conditions_met].float() * v_burning - v_burning / 2) * self.dt
-        self.product_density[conditions_met] += (self.fuel_density[conditions_met] + self.oxidizer_density[
-            conditions_met]) * 0.5
-        self.fuel_density[conditions_met] -= self.fuel_density[conditions_met]
-        self.oxidizer_density[conditions_met] -= self.oxidizer_density[conditions_met]
+        u[conditions_met] += u_burning * pwr_extraction[conditions_met] * self.dt
+        v[conditions_met] += (horizontal_directivity[conditions_met].float() * v_burning - v_burning / 2) * self.dt
+        product_density[conditions_met] += (fuel_density[conditions_met] + oxidizer_density[conditions_met]) * 0.5
+        fuel_density[conditions_met] -= fuel_density[conditions_met]
+        oxidizer_density[conditions_met] -= oxidizer_density[conditions_met]
+        return u, v, fuel_density, oxidizer_density, product_density
 
     def explosion(self):
         # TODO : Need to add exception handling for rapid explosion (expansion/compression) for enhancing stability of sim
         pass
 
-    def evaporation_cooling(self):
-        vertical_directivity = torch.rand(self.oxidizer_density.shape, device=self.device)
-        horizontal_directivity = torch.rand(self.oxidizer_density.shape, device=self.device)
+    def evaporation_cooling(self, oxidizer_density, u, v):
+        vertical_directivity = torch.rand(oxidizer_density.shape, device=self.device)
+        horizontal_directivity = torch.rand(oxidizer_density.shape, device=self.device)
         vertical_directivity = vertical_directivity < 0.5
         vertical_directivity = vertical_directivity >= 0.5
         horizontal_directivity = horizontal_directivity < 0.5
@@ -223,71 +223,79 @@ class flame_sim(object):
 
         cooling_u_magnitude = 0.2
         cooling_v_magnitude = 0.2
-        self.u[self.N_boundary:self.grid_size_x - self.N_boundary,
-        self.N_boundary:self.grid_size_y - self.N_boundary] += self.oxidizer_density[
+        u[self.N_boundary:self.grid_size_x - self.N_boundary,
+        self.N_boundary:self.grid_size_y - self.N_boundary] += oxidizer_density[
                                                                self.N_boundary:self.grid_size_x - self.N_boundary,
                                                                self.N_boundary:self.grid_size_y - self.N_boundary] * (
                                                                        vertical_directivity.float()[
                                                                        self.N_boundary:self.grid_size_x - self.N_boundary,
                                                                        self.N_boundary:self.grid_size_y - self.N_boundary] * cooling_u_magnitude - cooling_u_magnitude / 2) * self.dt
-        self.v[self.N_boundary:self.grid_size_x - self.N_boundary,
-        self.N_boundary:self.grid_size_y - self.N_boundary] += self.oxidizer_density[
+        v[self.N_boundary:self.grid_size_x - self.N_boundary,
+        self.N_boundary:self.grid_size_y - self.N_boundary] += oxidizer_density[
                                                                self.N_boundary:self.grid_size_x - self.N_boundary,
                                                                self.N_boundary:self.grid_size_y - self.N_boundary] * (
                                                                        horizontal_directivity.float()[
                                                                        self.N_boundary:self.grid_size_x - self.N_boundary,
                                                                        self.N_boundary:self.grid_size_y - self.N_boundary] * cooling_v_magnitude - cooling_v_magnitude / 2) * self.dt
+        return u, v, oxidizer_density
 
-    def radiative_cooling(self):
+    def radiative_cooling(self, fuel_density, oxidizer_density, product_density, u, v, temperature):
 
         density_treshold_burned_product = (
-                (self.product_density >= self.d_low_product_r_c) & (self.product_density <= self.d_high_product_r_c))
-        above_temperature_treshold = (self.temperature >= self.th_point_r_c)
+                (product_density >= self.d_low_product_r_c) & (product_density <= self.d_high_product_r_c))
+        above_temperature_treshold = (temperature >= self.th_point_r_c)
         conditions_met = density_treshold_burned_product & above_temperature_treshold
-        self.u[conditions_met] += self.product_density[conditions_met] * (-self.u[conditions_met]) / 100
-        self.v[conditions_met] += self.product_density[conditions_met] * (-self.v[conditions_met]) / 150
+        u[conditions_met] += product_density[conditions_met] * (-u[conditions_met]) / 100
+        v[conditions_met] += product_density[conditions_met] * (-v[conditions_met]) / 150
+        return u, v, product_density
 
-    def radiative_heating(self):
+    def radiative_heating(self, fuel_density, oxidizer_density, product_density, u, v, temperature):
+
         density_treshold_burned_product = (
-                (self.product_density >= self.d_low_product_r_h) & (self.product_density <= self.d_high_product_r_h))
-        above_temperature_treshold = (self.temperature >= self.th_point_r_h)
+                (product_density >= self.d_low_product_r_h) & (product_density <= self.d_high_product_r_h))
+        above_temperature_treshold = (temperature >= self.th_point_r_h)
         conditions_met = density_treshold_burned_product & above_temperature_treshold
-        self.u[conditions_met] += self.product_density[conditions_met] * (self.u[conditions_met]) / 250
-        self.v[conditions_met] += self.product_density[conditions_met] * (self.v[conditions_met]) / 250
+        u[conditions_met] += product_density[conditions_met] * (u[conditions_met]) / 250
+        v[conditions_met] += product_density[conditions_met] * (v[conditions_met]) / 250
+        return u, v, product_density
 
-    def velocity2temperature(self):
-        mass = self.mass_fuel + self.mass_oxidizer + self.mass_product
-        kinetic_energy_of_one_particle = 0.5 * mass * self.velocity_magnitude ** 2
-        N_fuel_atoms = self.avogardo * self.fuel_density * self.grid_unit_volume / self.fuel_molecular_mass
-        N_oxy_atoms = self.avogardo * self.oxidizer_density * self.grid_unit_volume / self.oxygen_molecular_mass
-        N_product_atoms = self.avogardo * self.product_density * self.grid_unit_volume / self.product_molecular_mass
+    def velocity2temperature(self, velocity_matrix, fuel_density, oxidizer_density, product_density, mass,
+                             degrees_of_freedom):
+        kinetic_energy_of_one_particle = 0.5 * mass * velocity_matrix ** 2
+        N_fuel_atoms = self.avogardo * fuel_density * self.grid_unit_volume / self.fuel_molecular_mass
+        N_oxy_atoms = self.avogardo * oxidizer_density * self.grid_unit_volume / self.oxygen_molecular_mass
+        N_product_atoms = self.avogardo * product_density * self.grid_unit_volume / self.product_molecular_mass
         N_atoms_per_unit_volume = N_fuel_atoms + N_oxy_atoms + N_product_atoms
-        Kelvin_matrix = (self.degrees_of_freedom / 3 * self.boltzmann_constant) * (
+        Kelvin_matrix = (degrees_of_freedom / 3 * self.boltzmann_constant) * (
                 kinetic_energy_of_one_particle * N_atoms_per_unit_volume)
         # print(Kelvin_matrix.max().cpu())
-        self.temperature = Kelvin_matrix
+        return Kelvin_matrix
 
-    def temperature2velocity(self):
-        kT = (self.boltzmann_constant * self.temperature)
-        N_oxy_atoms = self.pressure * self.mass_oxidizer * self.grid_unit_volume / self.oxidizer_density / kT
+    def temperature2velocity(self, pressure, temperature, fuel_density, product_density, oxidizer_density,
+                             mass_fuel, mass_oxidizer, mass_product,
+                             degrees_of_freedom):
+        kT = (self.boltzmann_constant * temperature)
+        N_oxy_atoms = pressure * mass_oxidizer * self.grid_unit_volume / oxidizer_density / kT
         N_oxy_atoms = self.nan2zero(N_oxy_atoms, 0., 0., 0.)
 
-        kinetic_energy_per_atom = (3 / self.degrees_of_freedom) * kT
-        velocity_matrix_oxidizer = (2 * N_oxy_atoms * kinetic_energy_per_atom / self.mass_oxidizer) ** 0.5
+        kinetic_energy_per_atom = (3 / degrees_of_freedom) * kT
+        velocity_matrix_oxidizer = (2 * N_oxy_atoms * kinetic_energy_per_atom / mass_oxidizer) ** 0.5
         velocity_matrix_oxidizer = self.nan2zero(velocity_matrix_oxidizer, 0., 0., 0.)
-        self.v = velocity_matrix_oxidizer - 2 * velocity_matrix_oxidizer * torch.rand(velocity_matrix_oxidizer.shape[0],
-                                                                                      velocity_matrix_oxidizer.shape[1],
-                                                                                      device=self.device)
+        v = velocity_matrix_oxidizer - 2 * velocity_matrix_oxidizer * torch.rand(velocity_matrix_oxidizer.shape[0],
+                                                                                 velocity_matrix_oxidizer.shape[1],
+                                                                                 device=self.device)
 
-        self.u = velocity_matrix_oxidizer - 2 * velocity_matrix_oxidizer * torch.rand(velocity_matrix_oxidizer.shape[0],
-                                                                                      velocity_matrix_oxidizer.shape[1],
-                                                                                      device=self.device)
+        u = velocity_matrix_oxidizer - 2 * velocity_matrix_oxidizer * torch.rand(velocity_matrix_oxidizer.shape[0],
+                                                                                 velocity_matrix_oxidizer.shape[1],
+                                                                                 device=self.device)
+        return u * self.dt, v * self.dt  # m/s
 
-    def temperature2rgb(self):
-        temperature = self.temperature / 100
+    def temperature2rgb(self, temperature):
+        temperature = temperature / 100
         red = torch.zeros_like(temperature)
         green = torch.zeros_like(temperature)
         blue = torch.zeros_like(temperature)
+
 
         alpha_mask = (temperature >= self.low_alpha) & (temperature <= self.high_alpha)
         self.alpha[alpha_mask] = torch.exp(-(temperature[alpha_mask] - self.low_alpha) / self.alpha_decay)
@@ -321,7 +329,8 @@ class flame_sim(object):
         red[temperature < self.low_alpha] = 0
         blue[temperature < self.low_alpha] = 0
         green[temperature < self.low_alpha] = 0
-        self.rgb, self.alpha = torch.clamp(torch.stack((red, green, blue), dim=2), 0, 255), self.alpha
+
+        return torch.clamp(torch.stack((red, green, blue), dim=2), 0, 255), self.alpha
 
     # w1(x) = w0(x) + dt * f(x,t)
     # Dynamic fuel_density addition
@@ -489,53 +498,47 @@ class flame_sim(object):
         # TODO : write this method for comparision
         return w4
 
-    def vel_step(self):
-        self.u, self.u_prev = self.add_source_u(self.fuel_density, self.u, self.u_prev, self.dt, self.step)
-        self.v, self.v_prev = self.add_source_v(self.fuel_density, self.v, self.v_prev, self.dt, self.step)
-        self.u, self.u_prev = self.SWAP(self.u, self.u_prev)
-        self.v, self.v_prev = self.SWAP(self.v, self.v_prev)
-        self.u, self.u_prev = self.diffuse(1, self.u, self.u_prev, self.viscosity, self.dt)
-        self.v, self.v_prev = self.diffuse(2, self.v, self.v_prev, self.viscosity, self.dt)
-        self.u, self.v, self.u_prev, self.v_prev = self.project(self.u, self.v, self.u_prev, self.v_prev)
-        self.u, self.u_prev = self.SWAP(self.u, self.u_prev)
-        self.v, self.v_prev = self.SWAP(self.v, self.v_prev)
-        self.u, self.u_prev = self.advect(1, self.u, self.u_prev, self.u_prev, self.v_prev, self.dt)
-        self.v, self.v_prev = self.advect(2, self.v, self.v_prev, self.u_prev, self.v_prev, self.dt)
-        self.u, self.v, self.u_prev, self.v_prev = self.project(self.u, self.v, self.u_prev, self.v_prev)
+    def vel_step(self, fuel_density, oxidizer_density, product_density, u, v, u_prev, v_prev, viscosity, dt, step):
+        u, u_prev = self.add_source_u(fuel_density, u, u_prev, dt, step)
+        v, v_prev = self.add_source_v(fuel_density, v, v_prev, dt, step)
+        u, u_prev = self.SWAP(u, u_prev)
+        v, v_prev = self.SWAP(v, v_prev)
+        u, u_prev = self.diffuse(1, u, u_prev, viscosity, dt)
+        v, v_prev = self.diffuse(2, v, v_prev, viscosity, dt)
+        u, v, u_prev, v_prev = self.project(u, v, u_prev, v_prev)
+        u, u_prev = self.SWAP(u, u_prev)
+        v, v_prev = self.SWAP(v, v_prev)
+        u, u_prev = self.advect(1, u, u_prev, u_prev, v_prev, dt)
+        v, v_prev = self.advect(2, v, v_prev, u_prev, v_prev, dt)
+        u, v, u_prev, v_prev = self.project(u, v, u_prev, v_prev)
+        return u, v, u_prev, v_prev, fuel_density, oxidizer_density, product_density
 
-    def dens_step(self):
-        self.oxidizer_density, self.oxidizer_density_prev = self.add_oxidiser_density(self.oxidizer_density,
-                                                                                      self.oxidizer_density_prev,
-                                                                                      self.dt,
-                                                                                      self.step)
-        self.fuel_density, self.fuel_density_prev = self.add_fuel_density(self.fuel_density, self.fuel_density_prev,
-                                                                          self.dt, self.step)
+    def dens_step(self, fuel_density, fuel_density_prev, oxidizer_density, oxidizer_density_prev, product_density,
+                  product_density_prev, u, v,
+                  diff, dt, step):
+        oxidizer_density, oxidizer_density_prev = self.add_oxidiser_density(oxidizer_density, oxidizer_density_prev, dt,
+                                                                            step)
+        fuel_density, fuel_density_prev = self.add_fuel_density(fuel_density, fuel_density_prev, dt, step)
 
-        self.fuel_density, self.fuel_density_prev = self.SWAP(self.fuel_density, self.fuel_density_prev)
-        self.oxidizer_density, self.oxidizer_density_prev = self.SWAP(self.oxidizer_density, self.oxidizer_density_prev)
-        self.product_density, self.product_density_prev = self.SWAP(self.product_density, self.product_density_prev)
+        fuel_density, fuel_density_prev = self.SWAP(fuel_density, fuel_density_prev)
+        oxidizer_density, oxidizer_density_prev = self.SWAP(oxidizer_density, oxidizer_density_prev)
+        product_density, product_density_prev = self.SWAP(product_density, product_density_prev)
 
-        self.fuel_density, self.fuel_density_prev = self.diffuse(0, self.fuel_density, self.fuel_density_prev,
-                                                                 self.diff, self.dt)
-        self.oxidizer_density, self.oxidizer_density_prev = self.diffuse(0, self.oxidizer_density,
-                                                                         self.oxidizer_density_prev, self.diff, self.dt)
-        self.product_density, self.product_density_prev = self.diffuse(0, self.product_density,
-                                                                       self.product_density_prev, self.diff, self.dt)
+        fuel_density, fuel_density_prev = self.diffuse(0, fuel_density, fuel_density_prev, diff, dt)
+        oxidizer_density, oxidizer_density_prev = self.diffuse(0, oxidizer_density, oxidizer_density_prev, diff, dt)
+        product_density, product_density_prev = self.diffuse(0, product_density, product_density_prev, diff, dt)
 
-        self.fuel_density, self.fuel_density_prev = self.SWAP(self.fuel_density, self.fuel_density_prev)
-        self.oxidizer_density, self.oxidizer_density_prev = self.SWAP(self.oxidizer_density, self.oxidizer_density_prev)
-        self.product_density, self.product_density_prev = self.SWAP(self.product_density, self.product_density_prev)
+        fuel_density, fuel_density_prev = self.SWAP(fuel_density, fuel_density_prev)
+        oxidizer_density, oxidizer_density_prev = self.SWAP(oxidizer_density, oxidizer_density_prev)
+        product_density, product_density_prev = self.SWAP(product_density, product_density_prev)
 
-        self.fuel_density, self.fuel_density_prev = self.advect(0, self.fuel_density, self.fuel_density_prev, self.u,
-                                                                self.v, self.dt)
-        self.oxidizer_density, self.oxidizer_density_prev = self.advect(0, self.oxidizer_density,
-                                                                        self.oxidizer_density_prev, self.u, self.v,
-                                                                        self.dt)
-        self.product_density, self.product_density_prev = self.advect(0, self.product_density,
-                                                                      self.product_density_prev, self.u, self.v,
-                                                                      self.dt)
+        fuel_density, fuel_density_prev = self.advect(0, fuel_density, fuel_density_prev, u, v, dt)
+        oxidizer_density, oxidizer_density_prev = self.advect(0, oxidizer_density, oxidizer_density_prev, u, v, dt)
+        product_density, product_density_prev = self.advect(0, product_density, product_density_prev, u, v, dt)
 
-    def pressure_poisson(self, l2_target):
+        return fuel_density, fuel_density_prev, oxidizer_density, oxidizer_density_prev, product_density, product_density_prev
+
+    def pressure_poisson(self, p, poisson_vel_term, l2_target):
         iter_diff = l2_target + 1
         n = 0
         a = 0
@@ -544,60 +547,98 @@ class flame_sim(object):
         d = -b
         e = -c
         while iter_diff > l2_target and n <= 500:
-            pn = self.pressure.clone().detach()
-            self.pressure[b:d, b:d] = (0.25 * (pn[b:d, c:] +
-                                               pn[b:d, :e] +
-                                               pn[c:, b:d] +
-                                               pn[:e, b:d]) -
-                                       self.poisson_v_term[b:d, b:d])
+            pn = p.clone().detach()
+            p[b:d, b:d] = (0.25 * (pn[b:d, c:] +
+                                   pn[b:d, :e] +
+                                   pn[c:, b:d] +
+                                   pn[:e, b:d]) -
+                           poisson_vel_term[b:d, b:d])
 
-            self.pressure = self.set_bnd(self.grid_size_x, self.grid_size_y, 0, self.pressure)
+            p = self.set_bnd(self.grid_size_x, self.grid_size_y, 0, p)
 
             if n % 10 == 0:
-                iter_diff = torch.sqrt(torch.sum((self.pressure - pn) ** 2) / torch.sum(pn ** 2))
+                iter_diff = torch.sqrt(torch.sum((p - pn) ** 2) / torch.sum(pn ** 2))
 
             n += 1
 
-    def poisson_velocity_term(self):
+        return p
+
+    @staticmethod
+    def poisson_velocity_term(poisson_vel_term, fuel_density, oxidizer_density, product_density, dt, u, v, dx):
         a = 0
         b = a + 1
         c = b + 1
         d = -b
         e = -c
-        density = self.fuel_density + self.oxidizer_density + self.product_density
-        self.poisson_v_term[b:d, b:d] = (
-                density[b:d, b:d] * self.dx / 16 *
-                (2 / self.dt * (self.u[b:d, c:] -
-                                self.u[b:d, :e] +
-                                self.v[c:, b:d] -
-                                self.v[:e, b:d]) -
-                 2 / self.dx * (self.u[c:, b:d] - self.u[:e, b:d]) *
-                 (self.v[b:d, c:] - self.v[b:d, :e]) -
-                 (self.u[b:d, c:] - self.u[b:d, :e]) ** 2 / self.dx -
-                 (self.v[c:, b:d] - self.v[:e, b:d]) ** 2 / self.dx)
+        density = fuel_density + oxidizer_density + product_density
+        poisson_vel_term[b:d, b:d] = (
+                density[b:d, b:d] * dx / 16 *
+                (2 / dt * (u[b:d, c:] -
+                           u[b:d, :e] +
+                           v[c:, b:d] -
+                           v[:e, b:d]) -
+                 2 / dx * (u[c:, b:d] - u[:e, b:d]) *
+                 (v[b:d, c:] - v[b:d, :e]) -
+                 (u[b:d, c:] - u[b:d, :e]) ** 2 / dx -
+                 (v[c:, b:d] - v[:e, b:d]) ** 2 / dx)
         )
+        return poisson_vel_term
 
-    def update_grid(self):
-        self.temperature, self.temperature_prev = self.SWAP(self.temperature, self.temperature_prev)
-        self.dens_step()
-        self.mass_fuel = self.fuel_density * self.grid_unit_volume
-        self.mass_oxidizer = self.oxidizer_density * self.grid_unit_volume
-        self.mass_product = self.product_density * self.grid_unit_volume
-        self.vel_step()
-        self.combustion()
-        self.evaporation_cooling()
-        self.radiative_cooling()
-        self.radiative_heating()
+    def update_grid(self, fuel_density, fuel_density_prev, oxidizer_density,
+                    oxidizer_density_prev, product_density,
+                    product_density_prev, u, u_prev, v, v_prev,
+                    pressure, temperature, temperature_prev, mass_fuel, mass_oxidizer,
+                    mass_product, poisson_v_term,
+                    dt, viscosity, diff, step):
+        temperature, temperature_prev = self.SWAP(temperature, temperature_prev)
+        fuel_density, fuel_density_prev, oxidizer_density, oxidizer_density_prev, product_density, product_density_prev = \
+            self.dens_step(fuel_density,
+                           fuel_density_prev,
+                           oxidizer_density,
+                           oxidizer_density_prev,
+                           product_density,
+                           product_density_prev, u, v,
+                           diff, dt, step)
+        mass_fuel = fuel_density * self.grid_unit_volume
+        mass_oxidizer = oxidizer_density * self.grid_unit_volume
+        mass_product = product_density * self.grid_unit_volume
+        u, v, u_prev, v_prev, fuel_density, oxidizer_density, product_density = self.vel_step(fuel_density,
+                                                                                              oxidizer_density,
+                                                                                              product_density, u, v,
+                                                                                              u_prev,
+                                                                                              v_prev, viscosity, dt,
+                                                                                              step)
 
-        self.velocity_magnitude = torch.sqrt(self.u ** 2 + self.v ** 2)
-        self.poisson_velocity_term()
-        self.pressure_poisson(0.1)
-        self.velocity2temperature()
-        self.temperature2rgb()
+        u, v, fuel_density, oxidizer_density, product_density = self.combustion(fuel_density, oxidizer_density,
+                                                                                product_density, u, v, temperature,
+                                                                                step)
+        u, v, oxidizer_density = self.evaporation_cooling(oxidizer_density, u, v)
+        u, v, product_density = self.radiative_cooling(fuel_density, oxidizer_density, product_density, u, v,
+                                                       temperature)
+        u, v, product_density = self.radiative_heating(fuel_density, oxidizer_density, product_density, u, v,
+                                                       temperature)
+
+        velocity_magnitude = torch.sqrt(u ** 2 + v ** 2)
+        poisson_v_term = self.poisson_velocity_term(poisson_v_term, fuel_density, oxidizer_density, product_density, dt,
+                                                    u, v,
+                                                    self.dx)
+        pressure = self.pressure_poisson(pressure, velocity_magnitude, 0.1)
+        temperature = self.velocity2temperature(velocity_magnitude, fuel_density, oxidizer_density, product_density,
+                                                mass_fuel + mass_oxidizer + mass_product, self.degrees_of_freedom)
+
+        rgb, alpha = self.temperature2rgb(temperature)
+
         # rgb = torch.cat([rgb , fuel_density.unsqueeze(2)],dim=2)
+        return fuel_density, fuel_density_prev, \
+            oxidizer_density, oxidizer_density_prev, \
+            product_density, product_density_prev, \
+            u, v, u_prev, v_prev, velocity_magnitude, pressure, \
+            temperature, temperature_prev, \
+            mass_fuel, mass_oxidizer, mass_product, \
+            poisson_v_term, rgb, alpha
 
     def save_results(self, step, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
-                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
+                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0,save_alpha=0):
         if step % frame_skip == 0 or step == 0:
             if save_v == 1 and step == 0:
                 self.v_result = torch.zeros_like(self.v, device=self.device)
@@ -662,7 +703,8 @@ class flame_sim(object):
 
     def simulate(self, plot=0, save_animation=0, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,
                  save_oxidizer=0,
-                 save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
+                 save_product=0, save_pressure=0, save_temperature=0, save_rgb=0,save_alpha=0):
+
         if plot == 1:
             # Create animation
             fig = plt.figure(figsize=(10, 6))
@@ -694,10 +736,23 @@ class flame_sim(object):
         for i in range(self.no_frames):
             self.save_results(i, save_v=save_v, save_u=save_u, save_vu_mag=save_vu_mag, save_fuel=save_fuel,
                               save_oxidizer=save_oxidizer,
-                              save_product=save_product, save_pressure=save_pressure,
-                              save_temperature=save_temperature,
-                              save_rgb=save_rgb, save_alpha=save_alpha)
-            self.update_grid()
+                              save_product=save_product, save_pressure=save_pressure, save_temperature=save_temperature,
+                              save_rgb=save_rgb,save_alpha=save_alpha)
+            self.fuel_density, self.fuel_density_prev, \
+                self.oxidizer_density, self.oxidizer_density_prev, \
+                self.product_density, self.product_density_prev, \
+                self.u, self.v, self.u_prev, self.v_prev, \
+                self.pressure, self.velocity_magnitude, self.temperature, self.temperature_prev, \
+                self.mass_fuel, self.mass_oxidizer, self.mass__product, \
+                self.poisson_v_term, self.rgb, self.alpha = \
+                self.update_grid(self.fuel_density, self.fuel_density_prev,
+                                 self.oxidizer_density, self.oxidizer_density_prev,
+                                 self.product_density, self.product_density_prev, self.u,
+                                 self.u_prev, self.v,
+                                 self.v_prev, self.pressure, self.temperature, self.temperature_prev,
+                                 self.mass_fuel, self.mass_oxidizer, self.mass_product,
+                                 self.poisson_v_term, self.dt,
+                                 self.viscosity, self.diff, i)
             if plot == 1:
                 if i % frame_skip == 0:
                     u_component = ax1.imshow(self.u.cpu().numpy(), animated=True)
@@ -706,8 +761,7 @@ class flame_sim(object):
                     pressure_field = ax4.imshow(self.pressure.cpu().numpy(), cmap='inferno', animated=True)
                     d = ax5.imshow(self.fuel_density.cpu().numpy(), cmap='hot', animated=True)
                     ox2 = ax6.imshow(self.oxidizer_density.cpu().numpy(), cmap='cool', animated=True)
-                    combustion_products = ax7.imshow(self.product_density.cpu().numpy(), cmap='rainbow',
-                                                     animated=True)
+                    combustion_products = ax7.imshow(self.product_density.cpu().numpy(), cmap='rainbow', animated=True)
                     temp = ax8.imshow((self.temperature.cpu().numpy()), cmap='plasma')
                     rgb = ax9.imshow((self.rgb.cpu().numpy()).astype(np.uint8), alpha=self.alpha.cpu().numpy())
                     ims.append(
@@ -724,4 +778,5 @@ class flame_sim(object):
 
         sys.modules[__name__].__dict__.clear()
         import gc
+
         gc.collect()
