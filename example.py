@@ -1,12 +1,12 @@
-from flame import flame_sim
+import time
 
 # TODO : density shapes generator
 # TODO : ignition gen
 # TODO : GPU parralelization GEN
 # Check : after successful implementation go to NO network
-import torch.multiprocessing as mp
-from torch.multiprocessing import Process, Pool, set_start_method, freeze_support
-import time
+from torch.multiprocessing import set_start_method
+
+from flame import flame_sim
 
 
 def simulate_flame(f, *args):
