@@ -1,0 +1,5 @@
+matplotlib~=3.8.3
+numpy~=1.26.1
+torch~=2.1.1+cu118
+setuptools~=69.0.3
+flame~=0.1

@@ -1,3 +1,4 @@
+license.txt
 setup.py
 flameEngine.egg-info/PKG-INFO
 flameEngine.egg-info/SOURCES.txt
