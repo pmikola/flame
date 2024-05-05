@@ -1,11 +1,11 @@
 Metadata-Version: 2.1
 Name: flameEngine
-Version: 0.0.1
+Version: 0.0.2
 Summary: Flame simulation package
 Author: Piotr Mikolajczyk
 Author-email: <pio.mikolajczyk@email.com>
-Keywords: python,flame package,flame,flameEngine
-Classifier: Development Status :: Alpha
+Keywords: python,flameEngine package,flameEngine,flameEngine
+Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Education
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: MacOS :: MacOS X

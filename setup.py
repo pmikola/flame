@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-VERSION = '0.0.1'
+VERSION = '0.0.2'
 DESCRIPTION = 'Flame simulation package'
 LONG_DESCRIPTION = 'Simulation engine implementation of stable fluids with extra steps for dataset generation in neural network env and test'
 
@@ -17,9 +17,9 @@ setup(
     install_requires=[],
 
 
-    keywords=['python', 'flame package','flame','flameEngine'],
+    keywords=['python', 'flameEngine package','flameEngine','flameEngine'],
     classifiers=[
-        "Development Status :: Alpha",
+        "Development Status :: 3 - Alpha",
         "Intended Audience :: Education",
         "Programming Language :: Python :: 3",
         "Operating System :: MacOS :: MacOS X",

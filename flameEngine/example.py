@@ -5,7 +5,7 @@ import time
 # TODO : GPU parralelization GEN
 # Check : after successful implementation go to NO network
 from torch.multiprocessing import set_start_method
-from src.flame import flame_sim
+from flameEngine.flame import flame_sim
 
 
 def simulate_flame(f, *args):
