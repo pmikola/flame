@@ -12,10 +12,12 @@ setup(
     description=DESCRIPTION,
     long_description=LONG_DESCRIPTION,
     packages=find_packages(),
-    install_requires=[],  # add any additional packages that
-    # needs to be installed along with your package. Eg: 'caer'
+    readme = 'README.md',
+    Homepage="https://github.com/pmikola/flame",
+    install_requires=[],
 
-    keywords=['python', 'first package'],
+
+    keywords=['python', 'flame package','flame','flameEngine'],
     classifiers=[
         "Development Status :: Alpha",
         "Intended Audience :: Education",
@@ -24,3 +26,4 @@ setup(
         "Operating System :: Microsoft :: Windows",
     ]
 )
+

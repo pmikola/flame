@@ -11,7 +11,6 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-
 class flame_sim(object):
     def __init__(self, no_frames=1000, grid_x=700, grid_y=400, dt=1 * 1e-2, diff=5e-3, viscosity=1.48 * 1e-5,
                  d_low_fuel_c=1e-2,
