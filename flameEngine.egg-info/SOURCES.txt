@@ -1,0 +1,5 @@
+setup.py
+flameEngine.egg-info/PKG-INFO
+flameEngine.egg-info/SOURCES.txt
+flameEngine.egg-info/dependency_links.txt
+flameEngine.egg-info/top_level.txt

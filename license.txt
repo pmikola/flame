@@ -1,0 +1,41 @@
+Non-Commercial Use License Agreement
+
+This software, including all versions that have been or will be created ("Software"), is provided for use free of charge for non-commercial purposes only, subject to the following terms and conditions:
+
+1. Definitions
+
+   "Software" refers to the program or programs distributed under this license.
+   
+   "Non-Commercial Use" refers to use of the Software for personal or educational purposes, or for any purpose other than direct or indirect commercial gain.
+   
+   "Commercial Use" refers to any use of the Software for direct or indirect commercial gain, including but not limited to sale, resale, licensing, or distribution for profit.
+
+2. Grant of License
+
+   Subject to the terms and conditions of this agreement, the creator ("Creator") hereby grants you a non-exclusive, non-transferable license to use the Software for Non-Commercial Use only.
+
+3. Commercial Use
+
+   If you wish to use the Software for Commercial Use, you must obtain written permission from the Creator. Please contact [pio.mikolajczyk@gmail.com] to request permission.
+
+4. Restrictions
+
+   You may not modify, reverse engineer, decompile, or disassemble the Software, except to the extent that such activity is expressly permitted by applicable law.
+
+5. Termination
+
+   This license is effective until terminated. The Creator reserves the right to terminate this license at any time if you fail to comply with any term or condition of this agreement. Upon termination, you must cease all use of the Software and destroy all copies in your possession.
+
+6. Disclaimer of Warranty
+
+   The Software is provided "as is" without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the Creator be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the Software or the use or other dealings in the Software.
+
+7. Governing Law
+
+   This agreement shall be governed by and construed in accordance with the laws of [Piotr Mikołajczyk].
+
+By using the Software, you agree to be bound by the terms and conditions of this agreement. If you do not agree to these terms and conditions, do not use the Software.
+
+For questions regarding this license agreement, please contact [pio.mikolajczyk@gmail.com].
+
+Piotr Mikołajczyk
