@@ -5,6 +5,8 @@
 # 5. : Stable Fluids : Jos Stam
 # 6. : Fluid Control Using the Adjoint Method : Antoine McNamara Adrien Treuille Zoran Popovic Jos Stam
 # 7. : Real-Time Fluid Dynamics for Games : Jos Stam
+from pathlib import Path
+
 import matplotlib
 import numpy as np
 import torch
@@ -12,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 
 class flame_sim(object):
-    def __init__(self, no_frames=1000, grid_x=700, grid_y=400, dt=1 * 1e-2, diff=5e-3, viscosity=1.48 * 1e-5,
+    def __init__(self, no_frames=1000,frame_skip=25, grid_x=700, grid_y=400, dt=1 * 1e-2, diff=5e-3, viscosity=1.48 * 1e-5,
                  d_low_fuel_c=1e-2,
                  d_high_fuel_c=1e3,
                  d_low_oxidizer_c=1e-2,
@@ -31,6 +33,7 @@ class flame_sim(object):
         # CUDA_LAUNCH_BLOCKING = 1
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.no_frames = no_frames
+        self.frame_skip = frame_skip
         self.grid_size_x = grid_x
         self.grid_size_y = grid_y
         self.N_boundary = int(self.grid_size_x / 100)
@@ -46,6 +49,7 @@ class flame_sim(object):
         self.gas_constant = R = 8.314
         self.boltzmann_constant = 1.380649 * 10e-23
         self.gravity = 9.8
+        self.gravity_divider = 2000
         self.propane_molecular_mass = 44.097 * 1e-3  # g/mol
         self.butane_molecular_mass = 58.12 * 1e-3  # g/mol
         self.oxygen_molecular_mass = 15.999 * 1e-3  # g/mol
@@ -395,7 +399,7 @@ class flame_sim(object):
             = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
 
         x[self.N_boundary:self.grid_size_x - self.N_boundary,
-        self.N_boundary:self.grid_size_y - self.N_boundary] += dt * self.gravity / 2000
+        self.N_boundary:self.grid_size_y - self.N_boundary] += dt * self.gravity / self.gravity_divider
 
         return x, x0
 
@@ -642,73 +646,78 @@ class flame_sim(object):
             mass_fuel, mass_oxidizer, mass_product, \
             poisson_v_term, rgb, alpha
 
-    def save_results(self, step, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
+    def save_results(self, step, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
                      save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
-        if step % frame_skip == 0 or step == 0:
-            if save_v == 1 and step == 0:
-                self.v_result = torch.zeros_like(self.v, device=self.device)
-            elif save_v == 1 and step != 0:
-                self.v_result = torch.cat([self.v_result, self.v], dim=1)
+        if step % self.frame_skip == 0 or step == 0:
+            meta_data = torch.tensor([step,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
+                          self.size_y,self.dx,self.dy,self.dt,self.degrees_of_freedom,
+                          self.viscosity,self.diff,self.gravity,self.gravity_divider,
+                          self.fuel_molecular_mass,self.oxidizer_molecular_mass,self.product_molecular_mass,
+                          self.grid_unit_volume,self.d_low_fuel,self.d_high_fuel,self.d_low_oxidizer,
+                          self.d_high_oxidizer,self.th_point_c,self.d_low_product_r_c,self.d_high_product_r_c,self.th_point_r_c,
+                          self.d_low_product_r_h,self.d_high_product_r_h,self.th_point_r_h,self.low_alpha,self.high_alpha,self.alpha_decay])
+            if save_v == 1:
+                my_folder = 'v'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.v}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_u == 1 and step == 0:
-                self.u_result = torch.zeros_like(self.u, device=self.device)
-            elif save_u == 1 and step != 0:
-                self.u_result = torch.cat([self.u_result, self.v], dim=1)
+            if save_u == 1:
+                my_folder = 'u'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.u}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_vu_mag == 1 and step == 0:
-                self.uv_mag_result = torch.zeros_like(self.velocity_magnitude, device=self.device)
-            elif save_vu_mag == 1 and step != 0:
-                self.uv_mag_result = torch.cat([self.uv_mag_result, self.velocity_magnitude], dim=1)
+            if save_vu_mag == 1:
+                my_folder = 'velocity_magnitude'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.velocity_magnitude}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_fuel == 1 and step == 0:
-                self.fuel_result = torch.zeros_like(self.fuel_density, device=self.device)
-            elif save_fuel == 1 and step != 0:
-                self.fuel_result = torch.cat([self.fuel_result, self.fuel_density], dim=1)
+            if save_fuel == 1:
+                my_folder = 'fuel_density'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.fuel_density}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_oxidizer == 1 and step == 0:
-                self.oxidizer_result = torch.zeros_like(self.oxidizer_density, device=self.device)
-            elif save_oxidizer == 1 and step != 0:
-                self.oxidizer_result = torch.cat([self.oxidizer_result, self.oxidizer_density], dim=1)
+            if save_oxidizer == 1:
+                my_folder = 'oxidizer_density'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.oxidizer_density}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_product == 1 and step == 0:
-                self.product_result = torch.zeros_like(self.product_density, device=self.device)
-            elif save_product == 1 and step != 0:
-                self.product_result = torch.cat([self.product_result, self.product_result], dim=1)
+            if save_product == 1:
+                my_folder = 'product_density'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.product_density}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_pressure == 1 and step == 0:
-                self.pressure_result = torch.zeros_like(self.pressure, device=self.device)
-            elif save_pressure == 1 and step != 0:
-                self.pressure_result = torch.cat([self.pressure_result, self.pressure], dim=1)
+            if save_pressure == 1:
+                my_folder = 'pressure'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.pressure}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_temperature == 1 and step == 0:
-                self.temperature_result = torch.zeros_like(self.temperature, device=self.device)
-            elif save_temperature == 1 and step != 0:
-                self.temperature_result = torch.cat([self.temperature_result, self.temperature], dim=1)
+            if save_temperature == 1:
+                my_folder = 'temperature'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.temperature}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_rgb == 1 and step == 0:
-                self.rgb_result = torch.zeros_like(self.rgb, device=self.device)
-            elif save_rgb == 1 and step != 0:
-                self.rgb_result = torch.cat([self.rgb_result, self.rgb], dim=1)
+            if save_rgb == 1:
+                my_folder = 'rgb'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.rgb}, f"{my_folder}/t{step}.pt")
             else:
                 pass
-            if save_alpha == 1 and step == 0:
-                self.alpha_result = torch.zeros_like(self.alpha, device=self.device)
-            elif save_alpha == 1 and step != 0:
-                self.alpha_result = torch.cat([self.alpha_result, self.alpha], dim=1)
+            if save_alpha == 1:
+                my_folder = 'alpha'
+                Path(my_folder).mkdir(parents=True, exist_ok=True)
+                torch.save({"metadata":meta_data,"data":self.alpha}, f"{my_folder}/t{step}.pt")
             else:
                 pass
 
-    def simulate(self, plot=0, save_animation=0, frame_skip=1, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,
-                 save_oxidizer=0,
-                 save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
+    def simulate(self, plot=0, save_animation=0, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,save_oxidizer=0,save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
 
         if plot == 1:
             # Create animation
@@ -748,7 +757,7 @@ class flame_sim(object):
                 self.product_density, self.product_density_prev, \
                 self.u, self.v, self.u_prev, self.v_prev, \
                 self.pressure, self.velocity_magnitude, self.temperature, self.temperature_prev, \
-                self.mass_fuel, self.mass_oxidizer, self.mass__product, \
+                self.mass_fuel, self.mass_oxidizer, self.mass_product, \
                 self.poisson_v_term, self.rgb, self.alpha = \
                 self.update_grid(self.fuel_density, self.fuel_density_prev,
                                  self.oxidizer_density, self.oxidizer_density_prev,
@@ -759,7 +768,7 @@ class flame_sim(object):
                                  self.poisson_v_term, self.dt,
                                  self.viscosity, self.diff, i)
             if plot == 1:
-                if i % frame_skip == 0:
+                if i % self.frame_skip == 0:
                     u_component = ax1.imshow(self.u.cpu().numpy(), animated=True)
                     v_component = ax2.imshow(self.v.cpu().numpy(), cmap='terrain', animated=True)
                     vel_mag = ax3.imshow(self.velocity_magnitude.cpu().numpy(), cmap='copper', animated=True)
@@ -777,11 +786,8 @@ class flame_sim(object):
             ani.save("fixed_alpha.gif")
         if plot == 1:
             plt.show()
-
         torch.cuda.empty_cache()
         import sys
-
         sys.modules[__name__].__dict__.clear()
         import gc
-
         gc.collect()

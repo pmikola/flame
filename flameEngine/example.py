@@ -1,9 +1,4 @@
 import time
-
-# TODO : density shapes generator
-# TODO : ignition gen
-# TODO : GPU parralelization GEN
-# Check : after successful implementation go to NO network
 from torch.multiprocessing import set_start_method
 from flameEngine.flame import flame_sim
 
@@ -29,8 +24,9 @@ def main():
     #
     # t1.join()
     # t2.join()
-    f1 = flame_sim(no_frames=1500)
-    simulate_flame(f1, 1, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    f1 = flame_sim(no_frames=500,frame_skip=25)
+
+    f1.simulate( plot=0, save_animation=0, save_v=1, save_u=0, save_vu_mag=0, save_fuel=0,save_oxidizer=0,save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0)
     tstop = time.time()
     total = tstop - tstart
     print(round(total, 2), '[s]')
