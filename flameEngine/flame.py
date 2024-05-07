@@ -26,7 +26,6 @@ class flame_sim(object):
                  d_low_product_r_h=1e1,
                  d_high_product_r_h=20.,
                  th_point_r_h=273. + 400.):
-
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
         plt.style.use('dark_background')
@@ -42,11 +41,17 @@ class flame_sim(object):
         self.dx = 2 / (self.size_x - 1)  # [m]
         self.dy = 2 / (self.size_y - 1)
         self.dt = dt  # [s]
+        self.idy = None
+        self.idx = None
+        self.idy_v = None
+        self.idx_v = None
+        self.idy_u = None
+        self.idx_u = None
         self.degrees_of_freedom = 2
         self.viscosity = viscosity  # of air
         self.diff = diff
         self.avogardo = 6.022 * 10 * 1e23
-        self.gas_constant = R = 8.314
+        self.gas_constant = self.R = 8.314
         self.boltzmann_constant = 1.380649 * 10e-23
         self.gravity = 9.8
         self.gravity_divider = 2000
@@ -91,7 +96,6 @@ class flame_sim(object):
         self.low_alpha = 3.
         self.high_alpha = 12.
         self.alpha_decay = 0.001
-
         self.fuel_density = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.fuel_density_prev = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.oxidizer_density = torch.ones(self.size_x, self.size_y, device=self.device)
@@ -102,7 +106,7 @@ class flame_sim(object):
         self.u = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.v = torch.zeros(self.size_x, self.size_y, device=self.device)
         self.velocity_magnitude = torch.zeros(self.size_x, self.size_y, device=self.device)
-
+        self.fuel_initial_speed = 5.
         # RANDOM WIND SPEEDS https://www.weather.gov/mfl/beaufort
         self.r1 = -0.1
         self.r2 = 0.1
@@ -142,6 +146,33 @@ class flame_sim(object):
         self.alpha = torch.zeros_like(self.temperature, device=self.device)
         self.rgb = torch.zeros_like(torch.stack((self.temperature, self.temperature, self.temperature), dim=2))
 
+    def structure_example(self):
+        self.rg_u = 25
+        self.offset_vertical = int(self.grid_size_x / 3)
+        self.center_x = self.grid_size_x // 2
+        self.center_y = self.grid_size_y // 2
+        self.idx_x_low_u = self.center_x - self.rg_u + self.offset_vertical
+        self.idx_x_high_u = self.center_x + self.rg_u + self.offset_vertical
+        self.idx_y_low_u = self.center_y - self.rg_u
+        self.idx_y_high_u = self.center_y + self.rg_u
+        self.idx_u = slice(self.idx_x_low_u, self.idx_x_high_u)
+        self.idy_u = slice(self.idx_y_low_u, self.idx_y_high_u)
+
+        self.rg_v = 2
+        self.idx_x_low_v = self.center_x - self.rg_v + self.offset_vertical
+        self.idx_x_high_v = self.center_x + self.rg_v + self.offset_vertical
+        self.idx_y_low_v = self.center_y - self.rg_v
+        self.idx_y_high_v = self.center_y + self.rg_v
+        self.idx_v = slice(self.idx_x_low_v, self.idx_x_high_v)
+        self.idy_v = slice(self.idx_y_low_v, self.idx_y_high_v)
+
+        self.rg = 25
+        self.idx_x_low = self.center_x - self.rg + self.offset_vertical
+        self.idx_x_high = self.center_x + self.rg + self.offset_vertical
+        self.idx_y_low = self.center_y - self.rg-5
+        self.idx_y_high = self.center_y + self.rg+5
+        self.idx = slice(self.idx_x_low, self.idx_x_high)
+        self.idy = slice(self.idx_y_low, self.idx_y_high)
     @staticmethod
     def set_bnd(Nx, Ny, b, x):
         if b == 1:
@@ -183,19 +214,11 @@ class flame_sim(object):
         return result
 
     def ignite(self, temperature, step):
-        rg = 25
-        offset_vertical = int(self.grid_size_x / 3)
-        center_x = self.grid_size_x // 2
-        center_y = self.grid_size_y // 2
-        idx_x_low = center_x - rg + offset_vertical
-        idx_x_high = center_x + rg + offset_vertical
-        idx_y_low = center_y - rg
-        idx_y_high = center_y + rg
         ignite_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
         if step > 75:
             pass
         else:
-            temperature[idx_x_low:idx_x_high, idx_y_low:idx_y_high] = ignite_temp
+            temperature[self.idx,self.idy] = ignite_temp
         return temperature
 
     def combustion(self, fuel_density, oxidizer_density, product_density,
@@ -251,7 +274,6 @@ class flame_sim(object):
         return u, v, oxidizer_density
 
     def radiative_cooling(self, fuel_density, oxidizer_density, product_density, u, v, temperature):
-
         density_treshold_burned_product = (
                 (product_density >= self.d_low_product_r_c) & (product_density <= self.d_high_product_r_c))
         above_temperature_treshold = (temperature >= self.th_point_r_c)
@@ -261,7 +283,6 @@ class flame_sim(object):
         return u, v, product_density
 
     def radiative_heating(self, fuel_density, oxidizer_density, product_density, u, v, temperature):
-
         density_treshold_burned_product = (
                 (product_density >= self.d_low_product_r_h) & (product_density <= self.d_high_product_r_h))
         above_temperature_treshold = (temperature >= self.th_point_r_h)
@@ -288,7 +309,6 @@ class flame_sim(object):
         kT = (self.boltzmann_constant * temperature)
         N_oxy_atoms = pressure * mass_oxidizer * self.grid_unit_volume / oxidizer_density / kT
         N_oxy_atoms = self.nan2zero(N_oxy_atoms, 0., 0., 0.)
-
         kinetic_energy_per_atom = (3 / degrees_of_freedom) * kT
         velocity_matrix_oxidizer = (2 * N_oxy_atoms * kinetic_energy_per_atom / mass_oxidizer) ** 0.5
         velocity_matrix_oxidizer = self.nan2zero(velocity_matrix_oxidizer, 0., 0., 0.)
@@ -344,21 +364,13 @@ class flame_sim(object):
     # w1(x) = w0(x) + dt * f(x,t)
     # Dynamic fuel_density addition
     def add_fuel_density(self, x, x0, dt, step):
-        rg = 25
-        offset_vertical = int(self.grid_size_x / 3)
-        center_x = self.grid_size_x // 2
-        center_y = self.grid_size_y // 2
-        idx_x_low = center_x - rg + offset_vertical
-        idx_x_high = center_x + rg + offset_vertical
-        idx_y_low = center_y - rg - 5
-        idx_y_high = center_y + rg + 5
-        idx_x = torch.randint(low=idx_x_low, high=idx_x_high, size=(1,))
-        idx_y = torch.randint(low=idx_y_low, high=idx_y_high, size=(1,))
-
-        x0[idx_x, idx_y] += (1.808 + 2.48)
-        x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += (1.808 + 2.48)  # Note :  propane + butane kg/m3
-        x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] += \
-            dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+        # TODO: add fuel density with outside predefined fuel_density structure and behavior
+        if step < 500:
+            x0[self.idx,self.idy] += (1.808 + 2.48)  # Note :  propane + butane kg/m3
+            x[self.idx,self.idy] += \
+                dt * x0[self.idx,self.idy]
+        else:
+            pass
         return x, x0
 
     def add_oxidiser_density(self, x, x0, dt, step):
@@ -382,21 +394,10 @@ class flame_sim(object):
 
     # Static velocity field components
     def add_source_u(self, fuel_density, x, x0, dt, step):
-        rg = 25
-        offset_vertical = int(self.grid_size_x / 3)
-        center_x = self.grid_size_x // 2
-        center_y = self.grid_size_y // 2
-        idx_x_low = center_x - rg + offset_vertical
-        idx_x_high = center_x + rg + offset_vertical
-        idx_y_low = center_y - rg
-        idx_y_high = center_y + rg
-
-        fuel_speed = 5.
         # Fire
-        x0 -= fuel_speed * fuel_density
-
-        x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
-            = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+        x0 -= self.fuel_initial_speed * fuel_density
+        x[self.idx_u,self.idy_u] \
+            = dt * x0[self.idx_u,self.idy_u]
 
         x[self.N_boundary:self.grid_size_x - self.N_boundary,
         self.N_boundary:self.grid_size_y - self.N_boundary] += dt * self.gravity / self.gravity_divider
@@ -404,20 +405,16 @@ class flame_sim(object):
         return x, x0
 
     def add_source_v(self, fuel_density, x, x0, dt, step):
-        rg = 2
-        offset_vertical = int(self.grid_size_x / 3)
-        center_x = self.grid_size_x // 2
-        center_y = self.grid_size_y // 2
-        idx_x_low = center_x - rg + offset_vertical
-        idx_x_high = center_x + rg + offset_vertical
-        idx_y_low = center_y - rg
-        idx_y_high = center_y + rg
-
         x0 += 2 * (torch.rand(x0.shape, device=self.device) - 0.5) * fuel_density
-
-        x[idx_x_low:idx_x_high, idx_y_low:idx_y_high] \
-            = dt * x0[idx_x_low:idx_x_high, idx_y_low:idx_y_high]
+        x[self.idx_v,self.idy_v] \
+            = dt * x0[self.idx_v,self.idy_v]
         return x, x0
+
+    def add_wind_u(self): # TODO: this
+        pass
+
+    def add_wind_v(self): # TODO: this
+        pass
 
     # Step 2
     # w2(x) = w1(p(x-dt))
@@ -487,7 +484,6 @@ class flame_sim(object):
         u_prev.fill_(0.)
         u_prev = self.set_bnd(self.grid_size_x, self.grid_size_y, 0, u_prev)
         v_prev = self.set_bnd(self.grid_size_x, self.grid_size_y, 0, v_prev)
-
         for k in range(20):
             u_prev[b:d, b:d] = (v_prev[b:d, b:d] + u_prev[:e, b:d] +
                                 u_prev[c:, b:d] + u_prev[b:d, :e] +
@@ -649,7 +645,7 @@ class flame_sim(object):
     def save_results(self, step, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
                      save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
         if step % self.frame_skip == 0 or step == 0:
-            meta_data = torch.tensor([step,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
+            meta_data = torch.tensor([step,self.fuel_initial_speed,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
                           self.size_y,self.dx,self.dy,self.dt,self.degrees_of_freedom,
                           self.viscosity,self.diff,self.gravity,self.gravity_divider,
                           self.fuel_molecular_mass,self.oxidizer_molecular_mass,self.product_molecular_mass,
@@ -718,7 +714,10 @@ class flame_sim(object):
                 pass
 
     def simulate(self, plot=0, save_animation=0, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,save_oxidizer=0,save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
-
+        if self.idx is None or self.idy is None:
+            self.structure_example()
+        else:
+            pass
         if plot == 1:
             # Create animation
             fig = plt.figure(figsize=(10, 6))
@@ -783,7 +782,7 @@ class flame_sim(object):
         if plot == 1:
             ani = animation.ArtistAnimation(fig, ims, interval=1, blit=True, repeat_delay=100)
         if save_animation == 1:
-            ani.save("fixed_alpha.gif")
+            ani.save("flame_animation.gif")
         if plot == 1:
             plt.show()
         torch.cuda.empty_cache()
