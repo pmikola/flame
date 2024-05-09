@@ -853,7 +853,7 @@ class flame_sim(object):
                                  self.v_prev, self.pressure, self.temperature, self.temperature_prev,
                                  self.mass_fuel, self.mass_oxidizer, self.mass_product,
                                  self.poisson_v_term, self.dt,
-                                 self.viscosity, self.diff, i)
+                                 self.viscosity, self.diff, 0)
         torch.cuda.empty_cache()
         import sys
         sys.modules[__name__].__dict__.clear()
