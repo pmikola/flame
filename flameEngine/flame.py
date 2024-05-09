@@ -26,6 +26,8 @@ class flame_sim(object):
                  d_low_product_r_h=1e1,
                  d_high_product_r_h=20.,
                  th_point_r_h=273. + 400.):
+
+
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
         plt.style.use('dark_background')
@@ -70,6 +72,8 @@ class flame_sim(object):
         self.no_oxygen = self.no_of_oxygn_in_the_reaction_for_propane + self.no_of_oxygn_in_the_reaction_for_butane
         self.no_of_h2o = self.no_of_h2o_propane + self.no_of_h2o_butane
         self.fuel_molecular_mass = self.propane_molecular_mass + self.butane_molecular_mass
+        self.fuel_density_m3 = (1.808 + 2.48)  # Note :  propane + butane kg/m3
+        self.fuel_dens_modifier = 1.
         self.oxidizer_molecular_mass = 2 * self.oxygen_molecular_mass * self.no_oxygen
         self.product_molecular_mass = self.co2_molecular_mass * self.no_of_co2 + self.h2o_molecular_mass * self.no_of_h2o
         self.PE_fuel_oxidizer_propane = 2219.9 * 1e3 / self.avogardo
@@ -79,6 +83,7 @@ class flame_sim(object):
         self.Su_propane_butane_burning_velocity = 38.3 * 1e-2
         self.grid_unit_volume = 1
 
+        self.igni_time = 75
         self.d_low_fuel = d_low_fuel_c
         self.d_high_fuel = d_high_fuel_c
         self.d_low_oxidizer = d_low_oxidizer_c
@@ -215,7 +220,7 @@ class flame_sim(object):
 
     def ignite(self, temperature, step):
         ignite_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
-        if step > 75:
+        if step > self.igni_time:
             pass
         else:
             temperature[self.idx,self.idy] = ignite_temp
@@ -365,12 +370,10 @@ class flame_sim(object):
     # Dynamic fuel_density addition
     def add_fuel_density(self, x, x0, dt, step):
         # TODO: add fuel density with outside predefined fuel_density structure and behavior
-        if step < 500:
-            x0[self.idx,self.idy] += (1.808 + 2.48)  # Note :  propane + butane kg/m3
-            x[self.idx,self.idy] += \
-                dt * x0[self.idx,self.idy]
-        else:
-            pass
+
+        x0[self.idx,self.idy] += self.fuel_density_m3*self.fuel_dens_modifier
+        x[self.idx,self.idy] += \
+            dt * x0[self.idx,self.idy]
         return x, x0
 
     def add_oxidiser_density(self, x, x0, dt, step):
