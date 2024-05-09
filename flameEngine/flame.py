@@ -5,6 +5,8 @@
 # 5. : Stable Fluids : Jos Stam
 # 6. : Fluid Control Using the Adjoint Method : Antoine McNamara Adrien Treuille Zoran Popovic Jos Stam
 # 7. : Real-Time Fluid Dynamics for Games : Jos Stam
+import os
+import shutil
 from pathlib import Path
 
 import matplotlib
@@ -26,6 +28,9 @@ class flame_sim(object):
                  d_low_product_r_h=1e1,
                  d_high_product_r_h=20.,
                  th_point_r_h=273. + 400.):
+
+
+
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
         plt.style.use('dark_background')
@@ -70,6 +75,8 @@ class flame_sim(object):
         self.no_oxygen = self.no_of_oxygn_in_the_reaction_for_propane + self.no_of_oxygn_in_the_reaction_for_butane
         self.no_of_h2o = self.no_of_h2o_propane + self.no_of_h2o_butane
         self.fuel_molecular_mass = self.propane_molecular_mass + self.butane_molecular_mass
+        self.fuel_density_m3 = (1.808 + 2.48)  # Note :  propane + butane kg/m3
+        self.fuel_dens_modifier = 1.
         self.oxidizer_molecular_mass = 2 * self.oxygen_molecular_mass * self.no_oxygen
         self.product_molecular_mass = self.co2_molecular_mass * self.no_of_co2 + self.h2o_molecular_mass * self.no_of_h2o
         self.PE_fuel_oxidizer_propane = 2219.9 * 1e3 / self.avogardo
@@ -79,6 +86,9 @@ class flame_sim(object):
         self.Su_propane_butane_burning_velocity = 38.3 * 1e-2
         self.grid_unit_volume = 1
 
+        self.igni_time = 75
+        self.ignition_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
+        self.fuel_cut_off_time = int(self.no_frames/2)
         self.d_low_fuel = d_low_fuel_c
         self.d_high_fuel = d_high_fuel_c
         self.d_low_oxidizer = d_low_oxidizer_c
@@ -214,11 +224,10 @@ class flame_sim(object):
         return result
 
     def ignite(self, temperature, step):
-        ignite_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
-        if step > 75:
+        if step > self.igni_time:
             pass
         else:
-            temperature[self.idx,self.idy] = ignite_temp
+            temperature[self.idx,self.idy] = self.ignition_temp
         return temperature
 
     def combustion(self, fuel_density, oxidizer_density, product_density,
@@ -365,8 +374,8 @@ class flame_sim(object):
     # Dynamic fuel_density addition
     def add_fuel_density(self, x, x0, dt, step):
         # TODO: add fuel density with outside predefined fuel_density structure and behavior
-        if step < 500:
-            x0[self.idx,self.idy] += (1.808 + 2.48)  # Note :  propane + butane kg/m3
+        if step < self.fuel_cut_off_time:
+            x0[self.idx,self.idy] += self.fuel_density_m3*self.fuel_dens_modifier
             x[self.idx,self.idy] += \
                 dt * x0[self.idx,self.idy]
         else:
@@ -643,9 +652,9 @@ class flame_sim(object):
             poisson_v_term, rgb, alpha
 
     def save_results(self, step, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
-                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
+                     save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0,delete_data=0):
         if step % self.frame_skip == 0 or step == 0:
-            meta_data = torch.tensor([step,self.fuel_initial_speed,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
+            meta_data = torch.tensor([step,self.fuel_initial_speed,self.fuel_cut_off_time,self.igni_time,self.ignition_temp,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
                           self.size_y,self.dx,self.dy,self.dt,self.degrees_of_freedom,
                           self.viscosity,self.diff,self.gravity,self.gravity_divider,
                           self.fuel_molecular_mass,self.oxidizer_molecular_mass,self.product_molecular_mass,
@@ -657,100 +666,180 @@ class flame_sim(object):
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.v}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'v'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_u == 1:
                 my_folder = 'u'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.u}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'u'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_vu_mag == 1:
                 my_folder = 'velocity_magnitude'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.velocity_magnitude}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'velocity_magnitude'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_fuel == 1:
                 my_folder = 'fuel_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.fuel_density}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'fuel_density'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_oxidizer == 1:
                 my_folder = 'oxidizer_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.oxidizer_density}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'oxidizer_density'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_product == 1:
                 my_folder = 'product_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.product_density}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'product_density'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_pressure == 1:
                 my_folder = 'pressure'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.pressure}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'pressure'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_temperature == 1:
                 my_folder = 'temperature'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.temperature}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'temperature'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_rgb == 1:
                 my_folder = 'rgb'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.rgb}, f"{my_folder}/t{step}.pt")
             else:
-                pass
+                my_folder = 'rgb'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
             if save_alpha == 1:
                 my_folder = 'alpha'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
                 torch.save({"metadata":meta_data,"data":self.alpha}, f"{my_folder}/t{step}.pt")
             else:
+                my_folder = 'alpha'
+                if os.path.exists(f"{my_folder}") and delete_data:
+                    shutil.rmtree(f"{my_folder}")
+                else:
+                    pass
+
+    def simulate(self, simulate=1,plot=0, save_animation=0, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,save_oxidizer=0,save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0,delete_data=0):
+        if simulate == 1:
+            if self.idx is None or self.idy is None:
+                self.structure_example()
+            else:
                 pass
+            if plot == 1:
+                # Create animation
+                fig = plt.figure(figsize=(10, 6))
+                grid = (2, 6)
+                ax1 = plt.subplot2grid(grid, (0, 2))
+                ax2 = plt.subplot2grid(grid, (0, 3))
+                ax3 = plt.subplot2grid(grid, (0, 4))
+                ax4 = plt.subplot2grid(grid, (0, 5))
+                ax5 = plt.subplot2grid(grid, (1, 2))
+                ax6 = plt.subplot2grid(grid, (1, 3))
+                ax7 = plt.subplot2grid(grid, (1, 4))
+                ax8 = plt.subplot2grid(grid, (1, 5))
+                ax9 = plt.subplot2grid(grid, (0, 0), rowspan=2, colspan=2)
+                for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9]:
+                    ax.set_axis_off()
 
-    def simulate(self, plot=0, save_animation=0, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0,save_oxidizer=0,save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0):
-        if self.idx is None or self.idy is None:
-            self.structure_example()
+                font_title_size = 7
+                ax1.set_title('Velocity field\n u component', size=font_title_size)
+                ax2.set_title('Velocity field\n v component', size=font_title_size)
+                ax3.set_title('Velocity\n Magnitude', size=font_title_size)
+                ax4.set_title('Pressure\n Field', size=font_title_size)
+                ax5.set_title('Fuel\n Density', size=font_title_size)
+                ax6.set_title('Oxidizer\n Density', size=font_title_size)
+                ax7.set_title('Product\n Densitty', size=font_title_size)
+                ax8.set_title('Temperature \n Field (K)', size=font_title_size)
+                ax9.set_title('RGB', size=font_title_size)
+                ims = []
+
+            for i in range(self.no_frames):
+                self.save_results(i, save_v=save_v, save_u=save_u, save_vu_mag=save_vu_mag, save_fuel=save_fuel,
+                                  save_oxidizer=save_oxidizer,
+                                  save_product=save_product, save_pressure=save_pressure, save_temperature=save_temperature,
+                                  save_rgb=save_rgb, save_alpha=save_alpha,delete_data=delete_data)
+                self.fuel_density, self.fuel_density_prev, \
+                    self.oxidizer_density, self.oxidizer_density_prev, \
+                    self.product_density, self.product_density_prev, \
+                    self.u, self.v, self.u_prev, self.v_prev, \
+                    self.pressure, self.velocity_magnitude, self.temperature, self.temperature_prev, \
+                    self.mass_fuel, self.mass_oxidizer, self.mass_product, \
+                    self.poisson_v_term, self.rgb, self.alpha = \
+                    self.update_grid(self.fuel_density, self.fuel_density_prev,
+                                     self.oxidizer_density, self.oxidizer_density_prev,
+                                     self.product_density, self.product_density_prev, self.u,
+                                     self.u_prev, self.v,
+                                     self.v_prev, self.pressure, self.temperature, self.temperature_prev,
+                                     self.mass_fuel, self.mass_oxidizer, self.mass_product,
+                                     self.poisson_v_term, self.dt,
+                                     self.viscosity, self.diff, i)
+                if plot == 1:
+                    if i % self.frame_skip == 0:
+                        u_component = ax1.imshow(self.u.cpu().numpy(), animated=True)
+                        v_component = ax2.imshow(self.v.cpu().numpy(), cmap='terrain', animated=True)
+                        vel_mag = ax3.imshow(self.velocity_magnitude.cpu().numpy(), cmap='copper', animated=True)
+                        pressure_field = ax4.imshow(self.pressure.cpu().numpy(), cmap='inferno', animated=True)
+                        d = ax5.imshow(self.fuel_density.cpu().numpy(), cmap='hot', animated=True)
+                        ox2 = ax6.imshow(self.oxidizer_density.cpu().numpy(), cmap='cool', animated=True)
+                        combustion_products = ax7.imshow(self.product_density.cpu().numpy(), cmap='rainbow', animated=True)
+                        temp = ax8.imshow((self.temperature.cpu().numpy()), cmap='plasma')
+                        rgb = ax9.imshow((self.rgb.cpu().numpy()).astype(np.uint8), alpha=self.alpha.cpu().numpy())
+                        ims.append(
+                            [d, ox2, combustion_products, u_component, v_component, pressure_field, temp, vel_mag, rgb])
+            if plot == 1:
+                ani = animation.ArtistAnimation(fig, ims, interval=1, blit=True, repeat_delay=100)
+            if save_animation == 1:
+                ani.save("flame_animation.gif")
+            if plot == 1:
+                plt.show()
         else:
-            pass
-        if plot == 1:
-            # Create animation
-            fig = plt.figure(figsize=(10, 6))
-            grid = (2, 6)
-            ax1 = plt.subplot2grid(grid, (0, 2))
-            ax2 = plt.subplot2grid(grid, (0, 3))
-            ax3 = plt.subplot2grid(grid, (0, 4))
-            ax4 = plt.subplot2grid(grid, (0, 5))
-            ax5 = plt.subplot2grid(grid, (1, 2))
-            ax6 = plt.subplot2grid(grid, (1, 3))
-            ax7 = plt.subplot2grid(grid, (1, 4))
-            ax8 = plt.subplot2grid(grid, (1, 5))
-            ax9 = plt.subplot2grid(grid, (0, 0), rowspan=2, colspan=2)
-            for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9]:
-                ax.set_axis_off()
-
-            font_title_size = 7
-            ax1.set_title('Velocity field\n u component', size=font_title_size)
-            ax2.set_title('Velocity field\n v component', size=font_title_size)
-            ax3.set_title('Velocity\n Magnitude', size=font_title_size)
-            ax4.set_title('Pressure\n Field', size=font_title_size)
-            ax5.set_title('Fuel\n Density', size=font_title_size)
-            ax6.set_title('Oxidizer\n Density', size=font_title_size)
-            ax7.set_title('Product\n Densitty', size=font_title_size)
-            ax8.set_title('Temperature \n Field (K)', size=font_title_size)
-            ax9.set_title('RGB', size=font_title_size)
-            ims = []
-
-        for i in range(self.no_frames):
-            self.save_results(i, save_v=save_v, save_u=save_u, save_vu_mag=save_vu_mag, save_fuel=save_fuel,
+            self.save_results(0, save_v=save_v, save_u=save_u, save_vu_mag=save_vu_mag, save_fuel=save_fuel,
                               save_oxidizer=save_oxidizer,
                               save_product=save_product, save_pressure=save_pressure, save_temperature=save_temperature,
-                              save_rgb=save_rgb, save_alpha=save_alpha)
+                              save_rgb=save_rgb, save_alpha=save_alpha, delete_data=delete_data)
             self.fuel_density, self.fuel_density_prev, \
                 self.oxidizer_density, self.oxidizer_density_prev, \
                 self.product_density, self.product_density_prev, \
@@ -765,26 +854,7 @@ class flame_sim(object):
                                  self.v_prev, self.pressure, self.temperature, self.temperature_prev,
                                  self.mass_fuel, self.mass_oxidizer, self.mass_product,
                                  self.poisson_v_term, self.dt,
-                                 self.viscosity, self.diff, i)
-            if plot == 1:
-                if i % self.frame_skip == 0:
-                    u_component = ax1.imshow(self.u.cpu().numpy(), animated=True)
-                    v_component = ax2.imshow(self.v.cpu().numpy(), cmap='terrain', animated=True)
-                    vel_mag = ax3.imshow(self.velocity_magnitude.cpu().numpy(), cmap='copper', animated=True)
-                    pressure_field = ax4.imshow(self.pressure.cpu().numpy(), cmap='inferno', animated=True)
-                    d = ax5.imshow(self.fuel_density.cpu().numpy(), cmap='hot', animated=True)
-                    ox2 = ax6.imshow(self.oxidizer_density.cpu().numpy(), cmap='cool', animated=True)
-                    combustion_products = ax7.imshow(self.product_density.cpu().numpy(), cmap='rainbow', animated=True)
-                    temp = ax8.imshow((self.temperature.cpu().numpy()), cmap='plasma')
-                    rgb = ax9.imshow((self.rgb.cpu().numpy()).astype(np.uint8), alpha=self.alpha.cpu().numpy())
-                    ims.append(
-                        [d, ox2, combustion_products, u_component, v_component, pressure_field, temp, vel_mag, rgb])
-        if plot == 1:
-            ani = animation.ArtistAnimation(fig, ims, interval=1, blit=True, repeat_delay=100)
-        if save_animation == 1:
-            ani.save("flame_animation.gif")
-        if plot == 1:
-            plt.show()
+                                 self.viscosity, self.diff, 0)
         torch.cuda.empty_cache()
         import sys
         sys.modules[__name__].__dict__.clear()
