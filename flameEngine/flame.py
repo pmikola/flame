@@ -84,6 +84,7 @@ class flame_sim(object):
         self.grid_unit_volume = 1
 
         self.igni_time = 75
+        self.fuel_cut_off_time = int(self.no_frames/2)
         self.d_low_fuel = d_low_fuel_c
         self.d_high_fuel = d_high_fuel_c
         self.d_low_oxidizer = d_low_oxidizer_c
@@ -370,10 +371,12 @@ class flame_sim(object):
     # Dynamic fuel_density addition
     def add_fuel_density(self, x, x0, dt, step):
         # TODO: add fuel density with outside predefined fuel_density structure and behavior
-
-        x0[self.idx,self.idy] += self.fuel_density_m3*self.fuel_dens_modifier
-        x[self.idx,self.idy] += \
-            dt * x0[self.idx,self.idy]
+        if step < self.fuel_cut_off_time:
+            x0[self.idx,self.idy] += self.fuel_density_m3*self.fuel_dens_modifier
+            x[self.idx,self.idy] += \
+                dt * x0[self.idx,self.idy]
+        else:
+            pass
         return x, x0
 
     def add_oxidiser_density(self, x, x0, dt, step):
