@@ -30,6 +30,7 @@ class flame_sim(object):
                  th_point_r_h=273. + 400.):
 
 
+
         torch.cuda.synchronize()
         matplotlib.use('TkAgg')
         plt.style.use('dark_background')
@@ -86,6 +87,7 @@ class flame_sim(object):
         self.grid_unit_volume = 1
 
         self.igni_time = 75
+        self.ignition_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
         self.fuel_cut_off_time = int(self.no_frames/2)
         self.d_low_fuel = d_low_fuel_c
         self.d_high_fuel = d_high_fuel_c
@@ -222,11 +224,10 @@ class flame_sim(object):
         return result
 
     def ignite(self, temperature, step):
-        ignite_temp = 273. + 10300.  # Note: lighter temperature (273. + 1300.)
         if step > self.igni_time:
             pass
         else:
-            temperature[self.idx,self.idy] = ignite_temp
+            temperature[self.idx,self.idy] = self.ignition_temp
         return temperature
 
     def combustion(self, fuel_density, oxidizer_density, product_density,
@@ -653,7 +654,7 @@ class flame_sim(object):
     def save_results(self, step, save_v=0, save_u=0, save_vu_mag=0, save_fuel=0, save_oxidizer=0,
                      save_product=0, save_pressure=0, save_temperature=0, save_rgb=0, save_alpha=0,delete_data=0):
         if step % self.frame_skip == 0 or step == 0:
-            meta_data = torch.tensor([step,self.fuel_initial_speed,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
+            meta_data = torch.tensor([step,self.fuel_initial_speed,self.fuel_cut_off_time,self.igni_time,self.ignition_temp,self.grid_size_x,self.grid_size_y,self.N_boundary,self.size_x,
                           self.size_y,self.dx,self.dy,self.dt,self.degrees_of_freedom,
                           self.viscosity,self.diff,self.gravity,self.gravity_divider,
                           self.fuel_molecular_mass,self.oxidizer_molecular_mass,self.product_molecular_mass,
