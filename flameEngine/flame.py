@@ -664,7 +664,7 @@ class flame_sim(object):
             if save_v == 1:
                 my_folder = 'v'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.v}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.v}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'v'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -674,7 +674,7 @@ class flame_sim(object):
             if save_u == 1:
                 my_folder = 'u'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.u}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.u}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'u'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -684,7 +684,7 @@ class flame_sim(object):
             if save_vu_mag == 1:
                 my_folder = 'velocity_magnitude'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.velocity_magnitude}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.velocity_magnitude}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'velocity_magnitude'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -694,7 +694,7 @@ class flame_sim(object):
             if save_fuel == 1:
                 my_folder = 'fuel_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.fuel_density}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.fuel_density}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'fuel_density'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -704,7 +704,7 @@ class flame_sim(object):
             if save_oxidizer == 1:
                 my_folder = 'oxidizer_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.oxidizer_density}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.oxidizer_density}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'oxidizer_density'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -714,7 +714,7 @@ class flame_sim(object):
             if save_product == 1:
                 my_folder = 'product_density'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.product_density}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.product_density}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'product_density'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -724,7 +724,7 @@ class flame_sim(object):
             if save_pressure == 1:
                 my_folder = 'pressure'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.pressure}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.pressure}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'pressure'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -734,7 +734,7 @@ class flame_sim(object):
             if save_temperature == 1:
                 my_folder = 'temperature'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.temperature}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.temperature}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'temperature'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -744,7 +744,7 @@ class flame_sim(object):
             if save_rgb == 1:
                 my_folder = 'rgb'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.rgb}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.rgb}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'rgb'
                 if os.path.exists(f"{my_folder}") and delete_data:
@@ -754,7 +754,7 @@ class flame_sim(object):
             if save_alpha == 1:
                 my_folder = 'alpha'
                 Path(my_folder).mkdir(parents=True, exist_ok=True)
-                torch.save({"metadata":meta_data,"data":self.alpha}, f"{my_folder}/t{step}.pt")
+                torch.save({"name":my_folder,"metadata":meta_data,"data":self.alpha}, f"{my_folder}/t{step}.pt")
             else:
                 my_folder = 'alpha'
                 if os.path.exists(f"{my_folder}") and delete_data:
